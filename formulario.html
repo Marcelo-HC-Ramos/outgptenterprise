@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutGPT - Pesquisa com Especialistas</title>
+  <style>
+    :root{--bg:#f5f6fb;--card:#fff;--text:#151a2d;--muted:#667090;--line:#e6e9f2;--soft:#eef0fb;--primary:#6366f1;--ok:#10b981;--bad:#ef4444;--grad:linear-gradient(135deg,#6366f1,#8b5cf6 50%,#22d3ee)}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b0e1a;--card:#141929;--text:#eaedf8;--muted:#8e97b5;--line:#242b44;--soft:#1b2140}}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+    .wrap{max-width:780px;margin:0 auto;padding:24px 16px 60px}
+    .hero{background:var(--grad);color:#fff;border-radius:22px;padding:28px;margin-bottom:18px}
+    .hero h1{margin:0 0 6px;font-size:1.7rem;letter-spacing:-.6px} .hero p{margin:0;opacity:.93}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:16px}
+    h2{font-size:1.05rem;margin:0 0 14px}
+    .q-num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--soft);color:var(--primary);font-size:.8rem;font-weight:700;margin-right:8px}
+    label.field{display:flex;flex-direction:column;gap:5px;font-size:.85rem;font-weight:600;margin-bottom:12px}
+    input[type=text],input[type=email],input[type=number],select,textarea{font:inherit;color:var(--text);padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--card);width:100%}
+    textarea{min-height:110px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .opt{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border:1px solid var(--line);border-radius:12px;margin:7px 0;cursor:pointer}
+    .opt:hover{border-color:var(--primary);background:var(--soft)}
+    .opt input{margin-top:5px}
+    .scale{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+    .scale label{display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 4px;border:1px solid var(--line);border-radius:12px;cursor:pointer;font-weight:700}
+    .scale label:hover,.scale label:has(input:checked){border-color:var(--primary);background:var(--soft);color:var(--primary)}
+    .legend{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:6px}
+    .card.err{border-color:var(--bad)}
+    .btn{background:var(--primary);color:#fff;border:0;border-radius:12px;padding:13px 26px;font:inherit;font-weight:700;cursor:pointer}
+    .btn:disabled{opacity:.6}
+    .msg{margin-top:14px;padding:12px 14px;border-radius:12px;font-weight:600}
+    .msg.ok{background:rgba(16,185,129,.15);color:var(--ok)} .msg.bad{background:rgba(239,68,68,.13);color:var(--bad)}
+    .small{font-size:.8rem;color:var(--muted)}
+    :focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+    @media(max-width:560px){.row{grid-template-columns:1fr}.scale label{padding:10px 2px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>Pesquisa com especialistas</h1>
+    <p>Sua opinião sobre a importância do <strong>OutGPT Enterprise</strong> (IA generativa com RAG para onboarding e retenção do conhecimento) em empresas e instituições de ensino. Leva cerca de 3 minutos.</p>
+  </div>
+
+  <form id="form" novalidate>
+    <div class="card">
+      <h2>Sobre você</h2>
+      <div class="row">
+        <label class="field">Nome *<input type="text" id="nome" maxlength="120" required></label>
+        <label class="field">E-mail (opcional)<input type="email" id="email" maxlength="160"></label>
+      </div>
+      <div class="row">
+        <label class="field">Cargo / função *<input type="text" id="cargo" maxlength="120" required></label>
+        <label class="field">Organização *<input type="text" id="org" maxlength="160" required></label>
+      </div>
+      <div class="row">
+        <label class="field">Tipo de organização *
+          <select id="tipo" required>
+            <option value="">Selecione...</option>
+            <option>Empresa</option><option>Instituição de ensino</option><option>Consultoria / outro</option>
+          </select></label>
+        <label class="field">Anos de experiência na área<input type="number" id="anos" min="0" max="60"></label>
+      </div>
+    </div>
+
+    <div id="perguntas"></div>
+
+    <div class="card">
+      <label class="opt" style="margin:0"><input type="checkbox" id="consent">
+        <span class="small">Concordo que minhas respostas sejam usadas, de forma acadêmica, no trabalho de PLN da Fatec Cotia, em conformidade com a LGPD.</span></label>
+    </div>
+    <button class="btn" id="enviar">Enviar respostas</button>
+    <div id="retorno" role="status"></div>
+  </form>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let PERGUNTAS = [];
+
+function el(html){ const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstChild; }
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function desenhar(p){
+  let corpo = "";
+  if (p.tipo === "escala")
+    corpo = `<div class="scale">${[1,2,3,4,5].map(n => `<label><input type="radio" name="q${p.id}" value="${n}" hidden>${n}</label>`).join("")}</div>
+             <div class="legend"><span>Baixa</span><span>Alta</span></div>`;
+  else if (p.tipo === "unica")
+    corpo = p.opcoes.map(o => `<label class="opt"><input type="radio" name="q${p.id}" value="${o.id}"> <span>${esc(o.texto)}</span></label>`).join("");
+  else if (p.tipo === "multipla")
+    corpo = p.opcoes.map(o => `<label class="opt"><input type="checkbox" name="q${p.id}" value="${o.id}"> <span>${esc(o.texto)}</span></label>`).join("");
+  else
+    corpo = `<textarea name="q${p.id}" maxlength="2000" placeholder="Escreva aqui (opcional)"></textarea>`;
+  return el(`<div class="card" data-q="${p.id}"><h2><span class="q-num">${p.ordem}</span>${esc(p.texto)}${p.obrigatoria ? " *" : ""}</h2>${corpo}</div>`);
+}
+
+fetch("/api/perguntas").then(r => r.json()).then(ps => {
+  PERGUNTAS = ps;
+  ps.forEach(p => $("#perguntas").appendChild(desenhar(p)));
+});
+
+function coletar(){
+  const respostas = {};
+  PERGUNTAS.forEach(p => {
+    const bloco = document.querySelector(`[data-q="${p.id}"]`);
+    if (p.tipo === "escala" || p.tipo === "unica") {
+      const s = bloco.querySelector("input:checked");
+      respostas[p.id] = s ? +s.value : null;
+    } else if (p.tipo === "multipla") {
+      respostas[p.id] = [...bloco.querySelectorAll("input:checked")].map(i => +i.value);
+    } else respostas[p.id] = bloco.querySelector("textarea").value.trim();
+  });
+  return respostas;
+}
+
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const ret = $("#retorno"); ret.innerHTML = "";
+  document.querySelectorAll(".card.err").forEach(c => c.classList.remove("err"));
+  const especialista = {
+    nome: $("#nome").value, email: $("#email").value, cargo: $("#cargo").value, organizacao: $("#org").value,
+    tipo_organizacao: $("#tipo").value, anos_experiencia: $("#anos").value, consentimento: $("#consent").checked
+  };
+  const respostas = coletar();
+  const faltando = PERGUNTAS.find(p => p.obrigatoria && (respostas[p.id] === null || respostas[p.id] === "" || (Array.isArray(respostas[p.id]) && !respostas[p.id].length)));
+  if (faltando) {
+    const b = document.querySelector(`[data-q="${faltando.id}"]`); b.classList.add("err"); b.scrollIntoView({behavior:"smooth", block:"center"});
+    ret.innerHTML = `<div class="msg bad">Responda a pergunta ${faltando.ordem}.</div>`; return;
+  }
+  $("#enviar").disabled = true;
+  try {
+    const r = await fetch("/api/enviar", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({especialista, respostas})});
+    const j = await r.json();
+    ret.innerHTML = `<div class="msg ${j.ok ? "ok" : "bad"}">${esc(j.mensagem)}</div>`;
+    if (j.ok) { $("#form").reset(); scrollTo({top:0, behavior:"smooth"}); } else $("#enviar").disabled = false;
+    if (j.ok) setTimeout(() => $("#enviar").disabled = false, 1500);
+  } catch { ret.innerHTML = `<div class="msg bad">Falha de conexão com o servidor.</div>`; $("#enviar").disabled = false; }
+});
+</script>
+</body>
+</html>

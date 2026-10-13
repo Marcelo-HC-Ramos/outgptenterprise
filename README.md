@@ -1,17 +1,31 @@
-﻿# OutGPT Enterprise - Front-end (Sprint Zero)
+﻿# OutGPT - Base de dados SQLite e formulario de pesquisa
 
-Front-end em HTML5 + CSS3 + JavaScript puro (sem frameworks, sem ferramentas no-code).
+## Como usar
+```
+python init_db.py     # cria outgpt.db (use --reset para recriar do zero)
+python server.py      # http://localhost:8000
+```
+- Formulario: http://localhost:8000
+- Resultados agregados: http://localhost:8000/resultados (com exportacao CSV)
 
-## Como executar
-Abra `index.html` no navegador (duplo clique). Opcional: `python -m http.server 8000` e acesse http://localhost:8000.
-Sem login: o site abre direto na pagina inicial (com modo claro/escuro).
+Somente biblioteca padrao do Python 3 (sqlite3, http.server). Sem instalacao.
 
-## Telas
-Inicio (progresso), Trilhas, Aula + questionario com gabarito, Chat RAG (respostas com fonte citada e recusa quando nao ha base),
-Historico de duvidas, Base de documentos (upload/remocao - somente gestor), Sobre.
+## Banco (outgpt.db)
+- Nucleo da plataforma: usuarios, documentos, chunks, trilhas, modulos, questoes, progresso, historico_duvidas
+- Pesquisa: especialistas, perguntas, opcoes, respostas
+O formulario e montado a partir das tabelas perguntas/opcoes: alterar uma pergunta no banco altera o formulario.
+Tipos de pergunta: escala (1-5), unica, multipla, aberta.
 
-## Observacao
-Os dados em `app.js` sao simulados e serao substituidos por chamadas ao backend (Python + RAG + ChromaDB/SQLite) nas proximas sprints.
+## As 7 perguntas
+1. Importancia de reduzir o tempo de onboarding com IA generativa (escala 1-5)
+2. Principais desafios na transmissao de conhecimento (multipla)
+3. Confianca em assistente de IA com RAG e fonte citada (escala 1-5)
+4. Aplicacao de maior valor em instituicoes de ensino (unica)
+5. Impacto na reducao da sobrecarga de seniores/docentes (escala 1-5)
+6. Principais riscos e barreiras de adocao (multipla)
+7. Recomendacoes e comentarios finais (aberta)
+Antes das perguntas ha um bloco "Sobre voce" (nome, cargo, organizacao, tipo, experiencia) e consentimento LGPD.
 
-Equipe: Marcelo Henrique do Carmo Ramos, Victor Henrique Duarte Cardoso - Fatec Cotia, PLN.
-
+## Para compartilhar com especialistas
+O servidor escuta apenas em 127.0.0.1. Para outras pessoas responderem, e preciso hospedar o servidor
+(ou usar um tunel temporario) ou aplicar o formulario na sua maquina e exportar os resultados.

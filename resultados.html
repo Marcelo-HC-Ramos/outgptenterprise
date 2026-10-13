@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutGPT - Resultados da Pesquisa</title>
+  <style>
+    :root{--bg:#f5f6fb;--card:#fff;--text:#151a2d;--muted:#667090;--line:#e6e9f2;--soft:#eef0fb;--primary:#6366f1;--grad:linear-gradient(90deg,#6366f1,#22d3ee)}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b0e1a;--card:#141929;--text:#eaedf8;--muted:#8e97b5;--line:#242b44;--soft:#1b2140}}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+    .wrap{max-width:860px;margin:0 auto;padding:24px 16px 60px}
+    h1{margin:0 0 4px;letter-spacing:-.6px} .muted{color:var(--muted)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px;margin:16px 0}
+    h2{font-size:1rem;margin:0 0 14px}
+    .bar{display:grid;grid-template-columns:minmax(120px,40%) 1fr 36px;gap:10px;align-items:center;margin:8px 0;font-size:.88rem}
+    .track{height:10px;background:var(--soft);border-radius:99px;overflow:hidden} .track i{display:block;height:100%;background:var(--grad)}
+    .media{font-size:2rem;font-weight:800;color:var(--primary)}
+    blockquote{margin:8px 0;padding:10px 14px;background:var(--soft);border-radius:12px;font-size:.92rem}
+    .btn{display:inline-block;background:var(--primary);color:#fff;padding:10px 18px;border-radius:12px;text-decoration:none;font-weight:700;font-size:.9rem}
+    .top{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div><h1>Resultados da pesquisa</h1><div class="muted" id="resumo">Carregando...</div></div>
+    <div><a class="btn" href="/api/exportar.csv">Exportar CSV</a> <a class="btn" href="/">Formulário</a></div></div>
+  <div id="out"></div>
+</div>
+<script>
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const barra = (rot, n, max) => `<div class="bar"><span>${esc(rot)}</span><div class="track"><i style="width:${max ? n / max * 100 : 0}%"></i></div><b>${n}</b></div>`;
+fetch("/api/resultados").then(r => r.json()).then(d => {
+  const tipos = Object.entries(d.por_tipo).map(([k, v]) => `${k}: ${v}`).join(" • ");
+  document.getElementById("resumo").textContent = `${d.total} especialista(s) • ${tipos || "sem respostas ainda"}`;
+  document.getElementById("out").innerHTML = d.perguntas.map(p => {
+    let corpo = "";
+    if (p.tipo === "escala") {
+      const max = Math.max(...Object.values(p.distribuicao), 0);
+      corpo = `<div class="media">${p.media ?? "—"} <small class="muted" style="font-size:.9rem;font-weight:400">média (${p.n} resp.)</small></div>` +
+        Object.entries(p.distribuicao).map(([k, v]) => barra("Nota " + k, v, max)).join("");
+    } else if (p.tipo === "aberta") {
+      corpo = p.textos.length ? p.textos.map(t => `<blockquote>${esc(t)}</blockquote>`).join("") : `<span class="muted">Sem comentários.</span>`;
+    } else {
+      const max = Math.max(...p.opcoes.map(o => o.n), 0);
+      corpo = p.opcoes.map(o => barra(o.texto, o.n, max)).join("");
+    }
+    return `<div class="card"><h2>${p.ordem}. ${esc(p.texto)}</h2>${corpo}</div>`;
+  }).join("");
+});
+</script>
+</body>
+</html>
