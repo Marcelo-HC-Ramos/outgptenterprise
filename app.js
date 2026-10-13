@@ -243,19 +243,80 @@ function telaSobre() {
 }
 
 // ---------- Pesquisa com especialistas (integrada ao SQLite via server.py) ----------
+// Com o servidor Python (SQLite) a pesquisa usa a API. Sem ele (GitHub Pages ou arquivo local),
+// entra o modo demonstração: dados fictícios de dados.js + respostas novas salvas no localStorage.
+const DEMO_KEY = "outgpt_respostas_demo";
+let modoDemo = null;
+async function detectarModo() {
+  if (modoDemo === null) {
+    try { modoDemo = location.protocol === "file:" || !(await fetch("/api/perguntas")).ok; } catch { modoDemo = true; }
+  }
+  return modoDemo;
+}
+const demoLocais = () => { try { return JSON.parse(localStorage.getItem(DEMO_KEY)) || []; } catch { return []; } };
+
+function demoResultados() {
+  const D = window.DADOS_PESQUISA;
+  const todos = [...D.participantes, ...demoLocais()];
+  const por_tipo = {};
+  todos.forEach(p => por_tipo[p.tipo_organizacao] = (por_tipo[p.tipo_organizacao] || 0) + 1);
+  const perguntas = D.perguntas.map(p => {
+    const vals = todos.map(t => t.respostas[p.id]).filter(v => v !== undefined && v !== null && v !== "");
+    const item = { ordem: p.ordem, texto: p.texto, tipo: p.tipo };
+    if (p.tipo === "escala") {
+      const dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }; vals.forEach(v => dist[v]++);
+      item.n = vals.length; item.distribuicao = dist;
+      item.media = vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100 : null;
+    } else if (p.tipo === "aberta") item.textos = vals.slice().reverse();
+    else { const ids = vals.flat(); item.opcoes = p.opcoes.map(o => ({ texto: o.texto, n: ids.filter(i => i === o.id).length })); }
+    return item;
+  });
+  return { total: todos.length, por_tipo, perguntas };
+}
+
+function demoCsv() {
+  const D = window.DADOS_PESQUISA, q = s => `"${String(s).replace(/"/g, '""')}"`;
+  const linhas = [["participante", "tipo_organizacao", "pergunta", "resposta"].join(",")];
+  [...D.participantes, ...demoLocais()].forEach((t, i) => D.perguntas.forEach(p => {
+    const v = t.respostas[p.id]; if (v === undefined || v === null || v === "") return;
+    const txt = p.tipo === "escala" || p.tipo === "aberta" ? v : [].concat(v).map(id => p.opcoes.find(o => o.id === id)?.texto).join("; ");
+    linhas.push([i + 1, q(t.tipo_organizacao), p.ordem, q(/^[=+\-@]/.test(String(txt)) ? "'" + txt : txt)].join(","));
+  }));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + linhas.join("\n")], { type: "text/csv;charset=utf-8" }));
+  a.download = "respostas_outgpt_demo.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+
 async function api(url, opts) {
-  if (location.protocol === "file:") throw new Error("offline");
+  if (await detectarModo()) {
+    const D = window.DADOS_PESQUISA;
+    if (!D) throw new Error("sem dados");
+    if (url === "/api/perguntas") return D.perguntas;
+    if (url === "/api/resultados") return demoResultados();
+    if (url === "/api/enviar") {
+      const d = JSON.parse(opts.body), e = d.especialista || {};
+      if (!e.nome?.trim() || !e.cargo?.trim() || !e.organizacao?.trim() || !e.tipo_organizacao) return { ok: false, mensagem: "Preencha nome, cargo, organização e tipo de organização." };
+      if (!e.consentimento) return { ok: false, mensagem: "É necessário concordar com o uso dos dados." };
+      // modo demonstração: guarda só o tipo de organização e as respostas (sem dados pessoais), neste navegador
+      const locais = demoLocais(); locais.push({ tipo_organizacao: e.tipo_organizacao, respostas: d.respostas });
+      try { localStorage.setItem(DEMO_KEY, JSON.stringify(locais)); } catch { return { ok: false, mensagem: "Não foi possível salvar neste navegador." }; }
+      return { ok: true, mensagem: "Resposta registrada (modo demonstração, salva apenas neste navegador)." };
+    }
+    throw new Error("rota");
+  }
   const r = await fetch(url, opts);
   return r.json();
 }
-const avisoServidor = () => `<div class="card"><h2>Servidor não encontrado</h2>
-  <p class="muted">Esta área usa o banco SQLite. Inicie o servidor com <code>python server.py</code> (pasta <code>outgpt-pesquisa</code>) e acesse <strong>http://localhost:8000</strong>.</p></div>`;
+const avisoDemo = () => modoDemo ? `<div class="msg demo">🧪 Modo demonstração: os dados são fictícios (Faker) e novas respostas ficam salvas só neste navegador. Para usar o banco SQLite real, rode o servidor Python do repositório.</div>` : "";
+const avisoServidor = () => `<div class="card"><h2>Dados indisponíveis</h2>
+  <p class="muted">Não foi possível carregar a pesquisa. Rode <code>python server.py</code> (pasta <code>backend</code>) e acesse <strong>http://localhost:8000</strong>.</p></div>`;
 
 async function telaPesquisa() {
   view.innerHTML = `<div class="page-head"><div><h1>Pesquisa com especialistas</h1>
-    <p class="muted">Qual a importância do OutGPT para empresas e instituições de ensino? Leva cerca de 3 minutos.</p></div></div><div id="pesq"></div>`;
+    <p class="muted">Qual a importância do OutGPT para empresas e instituições de ensino? Leva cerca de 3 minutos.</p></div></div><div id="pesq-aviso"></div><div id="pesq"></div>`;
   let ps;
   try { ps = await api("/api/perguntas"); } catch { $("#pesq").innerHTML = avisoServidor(); return; }
+  $("#pesq-aviso").innerHTML = avisoDemo();
   const campo = (id, rot, extra = "") => `<label class="field">${rot}<input id="${id}" ${extra}></label>`;
   const bloco = p => {
     let corpo;
@@ -299,9 +360,11 @@ async function telaPesquisa() {
 
 async function telaResultados() {
   view.innerHTML = `<div class="page-head"><div><h1>Resultados da pesquisa</h1><p class="muted" id="r-resumo">Carregando...</p></div>
-    <div><a class="btn" href="/api/exportar.csv">⬇ Exportar CSV</a> <a class="btn primary" href="#/pesquisa">Responder</a></div></div><div id="r-out"></div>`;
+    <div><a class="btn" id="csv" href="/api/exportar.csv">⬇ Exportar CSV</a> <a class="btn primary" href="#/pesquisa">Responder</a></div></div><div id="r-aviso"></div><div id="r-out"></div>`;
   let d;
   try { d = await api("/api/resultados"); } catch { $("#r-out").innerHTML = avisoServidor(); $("#r-resumo").textContent = ""; return; }
+  $("#r-aviso").innerHTML = avisoDemo();
+  if (modoDemo) $("#csv").onclick = e => { e.preventDefault(); demoCsv(); };
   const tipos = Object.entries(d.por_tipo).map(([k, v]) => `${esc(k)}: ${v}`).join(" • ");
   $("#r-resumo").innerHTML = `${d.total} especialista(s)${tipos ? " • " + tipos : ""}`;
   const barra = (rot, n, max) => `<div class="bar"><span>${esc(rot)}</span><div class="track"><i style="width:${max ? n / max * 100 : 0}%"></i></div><b>${n}</b></div>`;
@@ -319,3 +382,4 @@ async function telaResultados() {
     return `<div class="card"><h2><span class="q-num">${p.ordem}</span>${esc(p.texto)}</h2>${corpo}</div>`;
   }).join("");
 }
+

@@ -1,40 +1,44 @@
-﻿# OutGPT - Base de dados SQLite e formulario de pesquisa
+﻿# OutGPT Enterprise
 
-## Como usar
+Plataforma de onboarding e retencao do conhecimento operacional com IA generativa (RAG).
+Projeto de Processamento de Linguagem Natural - Fatec Cotia, Ciencia de Dados.
+
+**Equipe:** Marcelo Henrique do Carmo Ramos, Victor Henrique Duarte Cardoso
+
+## Demo online
+Apos ativar o GitHub Pages (Settings > Pages > Branch `main`, pasta `/docs`), o site fica em:
+`https://SEU-USUARIO.github.io/NOME-DO-REPOSITORIO/`
+
+Online ele roda em **modo demonstracao**: a pesquisa usa dados ficticios (Faker) e as novas respostas ficam apenas
+no navegador de quem responde. O GitHub Pages nao executa Python, por isso o banco SQLite so funciona localmente.
+
+## Estrutura
 ```
-python init_db.py     # cria outgpt.db (use --reset para recriar do zero)
-python server.py      # http://localhost:8000
+docs/      Front-end (HTML/CSS/JS) - publicado no GitHub Pages
+backend/   Banco SQLite, servidor Python, gerador de dados Faker
 ```
-- Site completo (integrado): http://localhost:8000 - menu "Pesquisa" (formulario) e "Resultados" (graficos + CSV)`n- Paginas independentes: /formulario e /resultados`n- O servidor serve o site da pasta ../outgpt-frontend. Abrir o index.html direto (file://) funciona, mas Pesquisa/Resultados pedem o servidor.
 
-Somente biblioteca padrao do Python 3 (sqlite3, http.server). Sem instalacao.
+## Rodar localmente com o banco SQLite
+```
+cd backend
+pip install -r requirements.txt
+python init_db.py            # cria outgpt.db (12 tabelas)
+python seed_faker.py         # dados ficticios (opcional)
+python server.py             # http://localhost:8000
+```
+Rotas: site em `/`, API `/api/perguntas`, `/api/enviar`, `/api/resultados`, `/api/exportar.csv`.
 
-## Banco (outgpt.db)
-- Nucleo da plataforma: usuarios, documentos, chunks, trilhas, modulos, questoes, progresso, historico_duvidas
+## Banco de dados
+- Plataforma: usuarios, documentos, chunks, trilhas, modulos, questoes, progresso, historico_duvidas
 - Pesquisa: especialistas, perguntas, opcoes, respostas
-O formulario e montado a partir das tabelas perguntas/opcoes: alterar uma pergunta no banco altera o formulario.
-Tipos de pergunta: escala (1-5), unica, multipla, aberta.
+Esquema completo em `backend/schema.sql`.
 
-## As 7 perguntas
-1. Importancia de reduzir o tempo de onboarding com IA generativa (escala 1-5)
-2. Principais desafios na transmissao de conhecimento (multipla)
-3. Confianca em assistente de IA com RAG e fonte citada (escala 1-5)
-4. Aplicacao de maior valor em instituicoes de ensino (unica)
-5. Impacto na reducao da sobrecarga de seniores/docentes (escala 1-5)
-6. Principais riscos e barreiras de adocao (multipla)
-7. Recomendacoes e comentarios finais (aberta)
-Antes das perguntas ha um bloco "Sobre voce" (nome, cargo, organizacao, tipo, experiencia) e consentimento LGPD.
-
-## Para compartilhar com especialistas
-O servidor escuta apenas em 127.0.0.1. Para outras pessoas responderem, e preciso hospedar o servidor
-(ou usar um tunel temporario) ou aplicar o formulario na sua maquina e exportar os resultados.
-
-
-## Dados ficticios (Faker)
+## Atualizar a demo online
 ```
-pip install Faker
-python seed_faker.py            # 40 especialistas + respostas, usuarios, documentos, chunks, historico
-python seed_faker.py -n 100     # outra quantidade
-python seed_faker.py --limpar   # remove somente os dados ficticios (e-mails @faker.example e documentos FAKE_*)
+cd backend
+python export_static.py      # regenera docs/dados.js (somente dados ficticios, anonimizados)
 ```
-Seed fixa (42): resultados reproduziveis. Rodar de novo substitui os dados ficticios anteriores, sem duplicar.
+
+## Aviso sobre dados
+Os dados de `seed_faker.py` sao ficticios e servem so para demonstracao; nao sao resultados reais de pesquisa.
+Respostas reais ficam em `backend/outgpt.db`, que nao e versionado (.gitignore) por conter dados pessoais.

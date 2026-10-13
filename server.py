@@ -1,4 +1,4 @@
-"""Servidor local do formulário de pesquisa (somente biblioteca padrão).
+﻿"""Servidor local do formulário de pesquisa (somente biblioteca padrão).
 
 Uso:  python server.py   ->  http://localhost:8000
 Rotas: /               formulário
@@ -17,12 +17,13 @@ from pathlib import Path
 
 BASE = Path(__file__).parent
 DB = BASE / "outgpt.db"
-FRONT = BASE.parent / "outgpt-frontend"
+FRONT = BASE.parent / "docs"
 SITE = {  # rotas estáticas do site (lista fixa: nenhum outro arquivo é exposto)
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/dados.js": ("dados.js", "text/javascript; charset=utf-8"),
 }
 TIPOS_ORG =("Empresa", "Instituição de ensino", "Consultoria / outro")
 
@@ -191,3 +192,4 @@ if __name__ == "__main__":
         raise SystemExit("Banco não encontrado. Rode antes: python init_db.py")
     print("Site OutGPT (com pesquisa):  http://localhost:8000\n(Ctrl+C para parar)")
     ThreadingHTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
+

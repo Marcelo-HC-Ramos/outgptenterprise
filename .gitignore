@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+backend/outgpt.db
+backend/outgpt.db-journal
+.venv/
+.vscode/
