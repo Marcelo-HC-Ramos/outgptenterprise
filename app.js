@@ -85,7 +85,7 @@ render();
 function render() {
   const [, rota = "inicio", arg] = location.hash.split("/");
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.route === rota || (rota === "aula" && a.dataset.route === "trilhas")));
-  const telas = { inicio: telaInicio, trilhas: telaTrilhas, aula: () => telaAula(+arg), chat: telaChat, historico: telaHistorico, documentos: telaDocumentos, sobre: telaSobre };
+  const telas = { inicio: telaInicio, trilhas: telaTrilhas, aula: () => telaAula(+arg), chat: telaChat, historico: telaHistorico, documentos: telaDocumentos, pesquisa: telaPesquisa, resultados: telaResultados, sobre: telaSobre };
   view.style.animation = "none"; view.offsetHeight; view.style.animation = "";
   (telas[rota] || telaInicio)();
   scrollTo(0, 0);
@@ -117,6 +117,7 @@ function telaInicio() {
       <a class="card tile" href="#/chat"><div class="thumb">✨</div><h3>Assistente</h3><small>Tire dúvidas com fonte citada.</small></a>
       <a class="card tile" href="#/trilhas"><div class="thumb">🎓</div><h3>Trilhas</h3><small>Cursos gerados dos manuais.</small></a>
       <a class="card tile" href="#/documentos"><div class="thumb">📚</div><h3>Documentos</h3><small>Base de conhecimento indexada.</small></a>
+      <a class="card tile" href="#/pesquisa"><div class="thumb">📝</div><h3>Pesquisa</h3><small>Opinião de especialistas sobre a ferramenta.</small></a>
     </div>`;
   $("#busca").onsubmit = e => { e.preventDefault(); pendente = $("#busca-q").value.trim(); location.hash = "#/chat"; };
 }
@@ -239,4 +240,82 @@ function telaSobre() {
     <div class="card"><h2>Stack planejada</h2>
       <p><span class="badge">Python</span> <span class="badge">LLM + RAG</span> <span class="badge">ChromaDB</span> <span class="badge">SQLite</span> <span class="badge">HTML/CSS/JS (front-end)</span></p>
       <p class="muted">Sprint Zero: front-end. Sprint Um (13/10–20/10): base de dados e diagrama ER com CRUD.</p></div>`;
+}
+
+// ---------- Pesquisa com especialistas (integrada ao SQLite via server.py) ----------
+async function api(url, opts) {
+  if (location.protocol === "file:") throw new Error("offline");
+  const r = await fetch(url, opts);
+  return r.json();
+}
+const avisoServidor = () => `<div class="card"><h2>Servidor não encontrado</h2>
+  <p class="muted">Esta área usa o banco SQLite. Inicie o servidor com <code>python server.py</code> (pasta <code>outgpt-pesquisa</code>) e acesse <strong>http://localhost:8000</strong>.</p></div>`;
+
+async function telaPesquisa() {
+  view.innerHTML = `<div class="page-head"><div><h1>Pesquisa com especialistas</h1>
+    <p class="muted">Qual a importância do OutGPT para empresas e instituições de ensino? Leva cerca de 3 minutos.</p></div></div><div id="pesq"></div>`;
+  let ps;
+  try { ps = await api("/api/perguntas"); } catch { $("#pesq").innerHTML = avisoServidor(); return; }
+  const campo = (id, rot, extra = "") => `<label class="field">${rot}<input id="${id}" ${extra}></label>`;
+  const bloco = p => {
+    let corpo;
+    if (p.tipo === "escala") corpo = `<div class="scale">${[1, 2, 3, 4, 5].map(n => `<label><input type="radio" name="q${p.id}" value="${n}" hidden>${n}</label>`).join("")}</div><div class="legend"><span>Baixa</span><span>Alta</span></div>`;
+    else if (p.tipo === "aberta") corpo = `<textarea name="q${p.id}" maxlength="2000" placeholder="Escreva aqui (opcional)"></textarea>`;
+    else corpo = p.opcoes.map(o => `<label class="opt"><input type="${p.tipo === "unica" ? "radio" : "checkbox"}" name="q${p.id}" value="${o.id}"><span>${esc(o.texto)}</span></label>`).join("");
+    return `<div class="card" data-q="${p.id}"><h2><span class="q-num">${p.ordem}</span>${esc(p.texto)}${p.obrigatoria ? " *" : ""}</h2>${corpo}</div>`;
+  };
+  $("#pesq").innerHTML = `<form id="pform" novalidate>
+    <div class="card"><h2>Sobre você</h2>
+      <div class="row2">${campo("p-nome", "Nome *", 'maxlength="120"')}${campo("p-email", "E-mail (opcional)", 'type="email" maxlength="160"')}</div>
+      <div class="row2">${campo("p-cargo", "Cargo / função *", 'maxlength="120"')}${campo("p-org", "Organização *", 'maxlength="160"')}</div>
+      <div class="row2"><label class="field">Tipo de organização *<select id="p-tipo"><option value="">Selecione...</option><option>Empresa</option><option>Instituição de ensino</option><option>Consultoria / outro</option></select></label>
+        ${campo("p-anos", "Anos de experiência", 'type="number" min="0" max="60"')}</div></div>
+    ${ps.map(bloco).join("")}
+    <div class="card"><label class="opt" style="margin:0"><input type="checkbox" id="p-ok"><span class="muted">Concordo que minhas respostas sejam usadas, de forma acadêmica, no trabalho de PLN da Fatec Cotia, em conformidade com a LGPD.</span></label></div>
+    <button class="btn primary" id="p-enviar">Enviar respostas</button><div id="p-ret" role="status"></div></form>`;
+
+  $("#pform").onsubmit = async e => {
+    e.preventDefault();
+    const ret = $("#p-ret"); ret.innerHTML = "";
+    document.querySelectorAll(".card.err").forEach(c => c.classList.remove("err"));
+    const respostas = {};
+    for (const p of ps) {
+      const b = view.querySelector(`[data-q="${p.id}"]`);
+      const marcados = [...b.querySelectorAll("input:checked")].map(i => +i.value);
+      respostas[p.id] = p.tipo === "multipla" ? marcados : p.tipo === "aberta" ? b.querySelector("textarea").value.trim() : (marcados[0] ?? null);
+      const vazio = respostas[p.id] === null || respostas[p.id] === "" || (Array.isArray(respostas[p.id]) && !respostas[p.id].length);
+      if (p.obrigatoria && vazio) { b.classList.add("err"); b.scrollIntoView({ behavior: "smooth", block: "center" }); ret.innerHTML = `<div class="msg bad">Responda a pergunta ${p.ordem}.</div>`; return; }
+    }
+    const especialista = { nome: $("#p-nome").value, email: $("#p-email").value, cargo: $("#p-cargo").value, organizacao: $("#p-org").value, tipo_organizacao: $("#p-tipo").value, anos_experiencia: $("#p-anos").value, consentimento: $("#p-ok").checked };
+    $("#p-enviar").disabled = true;
+    try {
+      const j = await api("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ especialista, respostas }) });
+      if (j.ok) { view.innerHTML = `<div class="card" style="text-align:center;padding:48px 22px"><div class="thumb" style="max-width:120px;margin:0 auto 16px">🎉</div><h1>Obrigado!</h1><p class="muted">${esc(j.mensagem)}</p><a class="btn primary" href="#/resultados">Ver resultados</a></div>`; return; }
+      ret.innerHTML = `<div class="msg bad">${esc(j.mensagem)}</div>`;
+    } catch { ret.innerHTML = `<div class="msg bad">Falha de conexão com o servidor.</div>`; }
+    $("#p-enviar").disabled = false;
+  };
+}
+
+async function telaResultados() {
+  view.innerHTML = `<div class="page-head"><div><h1>Resultados da pesquisa</h1><p class="muted" id="r-resumo">Carregando...</p></div>
+    <div><a class="btn" href="/api/exportar.csv">⬇ Exportar CSV</a> <a class="btn primary" href="#/pesquisa">Responder</a></div></div><div id="r-out"></div>`;
+  let d;
+  try { d = await api("/api/resultados"); } catch { $("#r-out").innerHTML = avisoServidor(); $("#r-resumo").textContent = ""; return; }
+  const tipos = Object.entries(d.por_tipo).map(([k, v]) => `${esc(k)}: ${v}`).join(" • ");
+  $("#r-resumo").innerHTML = `${d.total} especialista(s)${tipos ? " • " + tipos : ""}`;
+  const barra = (rot, n, max) => `<div class="bar"><span>${esc(rot)}</span><div class="track"><i style="width:${max ? n / max * 100 : 0}%"></i></div><b>${n}</b></div>`;
+  $("#r-out").innerHTML = d.perguntas.map(p => {
+    let corpo;
+    if (p.tipo === "escala") {
+      const max = Math.max(...Object.values(p.distribuicao), 0);
+      corpo = `<div class="media">${p.media ?? "—"} <small class="muted">média (${p.n} resp.)</small></div>` + Object.entries(p.distribuicao).map(([k, v]) => barra("Nota " + k, v, max)).join("");
+    } else if (p.tipo === "aberta") {
+      corpo = p.textos.length ? p.textos.map(t => `<blockquote>${esc(t)}</blockquote>`).join("") : `<span class="muted">Sem comentários.</span>`;
+    } else {
+      const max = Math.max(...p.opcoes.map(o => o.n), 0);
+      corpo = p.opcoes.map(o => barra(o.texto, o.n, max)).join("");
+    }
+    return `<div class="card"><h2><span class="q-num">${p.ordem}</span>${esc(p.texto)}</h2>${corpo}</div>`;
+  }).join("");
 }

@@ -17,7 +17,14 @@ from pathlib import Path
 
 BASE = Path(__file__).parent
 DB = BASE / "outgpt.db"
-TIPOS_ORG = ("Empresa", "Instituição de ensino", "Consultoria / outro")
+FRONT = BASE.parent / "outgpt-frontend"
+SITE = {  # rotas estáticas do site (lista fixa: nenhum outro arquivo é exposto)
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+}
+TIPOS_ORG =("Empresa", "Instituição de ensino", "Consultoria / outro")
 
 
 def conectar():
@@ -145,7 +152,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         rota = self.path.split("?")[0]
-        if rota in ("/", "/index.html"):
+        if rota in SITE:
+            nome, ctype = SITE[rota]
+            self._send(200, (FRONT / nome).read_bytes(), ctype)
+        elif rota == "/formulario":
             self._send(200, (BASE / "formulario.html").read_bytes(), "text/html; charset=utf-8")
         elif rota == "/resultados":
             self._send(200, (BASE / "resultados.html").read_bytes(), "text/html; charset=utf-8")
@@ -179,5 +189,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     if not DB.exists():
         raise SystemExit("Banco não encontrado. Rode antes: python init_db.py")
-    print("Formulário:  http://localhost:8000\nResultados:  http://localhost:8000/resultados\n(Ctrl+C para parar)")
+    print("Site OutGPT (com pesquisa):  http://localhost:8000\n(Ctrl+C para parar)")
     ThreadingHTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
