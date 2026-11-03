@@ -4,3 +4,4 @@ backend/outgpt.db
 backend/outgpt.db-journal
 .venv/
 .vscode/
+backend/data/chroma_db/

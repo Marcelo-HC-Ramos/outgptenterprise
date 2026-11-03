@@ -11,6 +11,8 @@ Rotas: /               formulário
 import csv
 import io
 import json
+import os
+import re
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -138,6 +140,41 @@ def exportar_csv():
     return buf.getvalue().encode("utf-8-sig")
 
 
+# Abaixo disso o assistente recusa, em vez de inventar uma resposta. Calibrar com o dataset completo
+# (variável de ambiente OUTGPT_LIMIAR). Medido com o dataset de 100 SOPs e o modelo multilíngue:
+# perguntas fora do assunto ficam em ~0,3 a 0,47 e as do domínio a partir de ~0,53.
+LIMIAR_SIMILARIDADE = float(os.environ.get("OUTGPT_LIMIAR", "0.50"))
+
+
+def listar_sops():
+    with conectar() as con:
+        sops = [dict(r) for r in con.execute(
+            "SELECT id, categoria, procedimento_titulo, contexto_documental, contem_pii FROM sops ORDER BY id")]
+    return {"total": len(sops), "categorias": sorted({s["categoria"] for s in sops}), "sops": sops}
+
+
+def responder(pergunta):
+    """RAG: anonimiza a pergunta, busca no ChromaDB e responde com o trecho encontrado + fonte."""
+    import rag
+    pergunta = str(pergunta or "").strip()[:1000]
+    if not pergunta:
+        return {"ok": False, "mensagem": "Digite uma pergunta."}
+    limpa, pii = rag.anonimizar(pergunta)
+    try:
+        # os marcadores [CPF], [EMAIL]... não ajudam a busca semântica: a consulta usa o texto sem eles
+        achados = rag.buscar(re.sub(r"\[(?:EMAIL|CPF|CNPJ|TELEFONE)\]", " ", limpa).strip() or limpa, k=3)
+    except Exception as e:
+        return {"ok": False, "mensagem": f"Base vetorial indisponível: {type(e).__name__}. Rode python rag.py."}
+    base = {"ok": True, "pii_mascaradas": pii, "pergunta_anonimizada": limpa}
+    if not achados or achados[0]["similaridade"] < LIMIAR_SIMILARIDADE:
+        return {**base, "encontrado": False, "resposta": "Não encontrei essa informação nos manuais indexados. "
+                "Para evitar respostas inventadas, consulte seu gestor ou abra um chamado.", "fontes": []}
+    top = achados[0]
+    return {**base, "encontrado": True, "resposta": top["contexto_documental"],
+            "fontes": [{"sop_id": a["id"], "titulo": a["procedimento_titulo"], "categoria": a["categoria"],
+                        "similaridade": a["similaridade"]} for a in achados if a["similaridade"] >= LIMIAR_SIMILARIDADE]}
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, body, ctype, extra=None):
         self.send_response(code)
@@ -164,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(perguntas())
         elif rota == "/api/resultados":
             self._json(resultados())
+        elif rota == "/api/documentos":
+            self._json(listar_sops())
         elif rota == "/api/exportar.csv":
             self._send(200, exportar_csv(), "text/csv; charset=utf-8",
                        {"Content-Disposition": "attachment; filename=respostas_outgpt.csv"})
@@ -171,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"Nao encontrado", "text/plain; charset=utf-8")
 
     def do_POST(self):
-        if self.path != "/api/enviar":
+        if self.path not in ("/api/enviar", "/api/chat"):
             return self._send(404, b"Nao encontrado", "text/plain; charset=utf-8")
         try:
             tam = int(self.headers.get("Content-Length", 0))
@@ -180,6 +219,8 @@ class Handler(BaseHTTPRequestHandler):
             dados = json.loads(self.rfile.read(tam) or b"{}")
         except (ValueError, json.JSONDecodeError):
             return self._json({"ok": False, "mensagem": "JSON inválido."}, 400)
+        if self.path == "/api/chat":
+            return self._json(responder(dados.get("pergunta")))
         ok, msg = salvar(dados)
         self._json({"ok": ok, "mensagem": msg}, 200 if ok else 400)
 
@@ -192,4 +233,6 @@ if __name__ == "__main__":
         raise SystemExit("Banco não encontrado. Rode antes: python init_db.py")
     print("Site OutGPT (com pesquisa):  http://localhost:8000\n(Ctrl+C para parar)")
     ThreadingHTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
+
+
 

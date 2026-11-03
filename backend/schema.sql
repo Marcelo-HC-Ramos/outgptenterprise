@@ -70,6 +70,17 @@ CREATE TABLE IF NOT EXISTS historico_duvidas (
   criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
+-- ===== Dataset de SOPs (carregado por rag.py a partir do CSV) =====
+CREATE TABLE IF NOT EXISTS sops (
+  id TEXT PRIMARY KEY,
+  categoria TEXT NOT NULL,
+  procedimento_titulo TEXT NOT NULL,
+  contexto_documental TEXT NOT NULL,
+  pergunta_utilizador TEXT,
+  resposta_esperada TEXT,
+  contem_pii INTEGER NOT NULL DEFAULT 0 CHECK (contem_pii IN (0,1))
+);
+
 -- ===== Pesquisa com especialistas =====
 CREATE TABLE IF NOT EXISTS especialistas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
