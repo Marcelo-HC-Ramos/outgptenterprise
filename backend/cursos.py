@@ -9,6 +9,7 @@ import json
 import math
 import random
 import re
+import secrets
 
 from auth import visibilidades_do
 
@@ -117,7 +118,7 @@ def listar(con, usuario, empresa_id):
     cursos = {}
     for r in _linhas(con, usuario, empresa_id):
         c = cursos.setdefault(r["curso_id"], {
-            "id": r["curso_id"], "titulo": r["curso"], "descricao": r["descricao"], "categoria": r["curso_categoria"], "nivel": r["nivel"],
+            "id": r["curso_id"], "titulo": r["curso"], "descricao": r["descricao"], "categoria": r["curso_categoria"], "nivel": r["nivel"], "personalizado": r["curso_categoria"] is None,
             "licoes": 0, "concluidas": 0, "respondidas": 0, "acertos": 0, "minutos": 0, "ultima": None, "proxima": None})
         c["licoes"] += 1
         c["minutos"] += _minutos(r["texto"])
@@ -194,3 +195,87 @@ def responder_quiz(con, usuario, empresa_id, curso_id, conteudo_id, opcao):
                 (1 if correta else 0, usuario["id"], curso_id, conteudo_id))
     con.commit()
     return {"correta": correta, "indice_correto": q["indice"], "resposta_certa": q["opcoes"][q["indice"]]}
+
+
+# ---------- Cursos personalizados (o admin escolhe e ordena as lições) ----------
+NIVEIS = ("Iniciante", "Intermediário", "Avançado")
+MAX_LICOES = 60
+
+
+def _validar_ids(con, empresa_id, ids):
+    if not isinstance(ids, list) or not ids:
+        raise ValueError("Escolha pelo menos uma lição.")
+    if len(ids) > MAX_LICOES:
+        raise ValueError(f"Um curso pode ter no máximo {MAX_LICOES} lições.")
+    if any(not isinstance(i, int) or isinstance(i, bool) for i in ids) or len(set(ids)) != len(ids):
+        raise ValueError("Lista de lições inválida.")
+    n = con.execute(f"SELECT COUNT(*) FROM conteudos WHERE empresa_id=? AND id IN ({_marcas(ids)})", [empresa_id, *ids]).fetchone()[0]
+    if n != len(ids):
+        raise ValueError("Há lições que não pertencem a esta empresa.")
+
+
+def _definir_itens(con, curso_id, ids):
+    con.execute("DELETE FROM curso_itens WHERE curso_id=?", (curso_id,))   # o progresso das lições que ficam é preservado
+    con.executemany("INSERT INTO curso_itens (curso_id, conteudo_id, ordem) VALUES (?,?,?)", [(curso_id, i, n + 1) for n, i in enumerate(ids)])
+
+
+def criar_personalizado(con, empresa_id, titulo, descricao, nivel, ids):
+    if nivel not in NIVEIS:
+        raise ValueError("Nível inválido.")
+    _validar_ids(con, empresa_id, ids)
+    ordem = con.execute("SELECT COALESCE(MAX(ordem),0)+1 FROM cursos WHERE empresa_id=?", (empresa_id,)).fetchone()[0]
+    cur = con.execute("INSERT INTO cursos (empresa_id,titulo,descricao,categoria,nivel,ordem) VALUES (?,?,?,NULL,?,?)", (empresa_id, titulo, descricao, nivel, ordem))
+    _definir_itens(con, cur.lastrowid, ids)
+    con.commit()
+    return cur.lastrowid
+
+
+def atualizar_personalizado(con, curso, titulo, descricao, nivel, ids):
+    if curso["categoria"] is not None:
+        raise ValueError("Cursos automáticos não permitem trocar as lições (crie um curso personalizado).")
+    if nivel not in NIVEIS:
+        raise ValueError("Nível inválido.")
+    _validar_ids(con, curso["empresa_id"], ids)
+    con.execute("UPDATE cursos SET titulo=?, descricao=?, nivel=? WHERE id=?", (titulo, descricao, nivel, curso["id"]))
+    _definir_itens(con, curso["id"], ids)
+    con.commit()
+
+
+def estrutura(con, curso):
+    """Dados para o editor do admin: lições do curso, na ordem (todas, sem filtrar por visibilidade)."""
+    itens = [r[0] for r in con.execute("SELECT conteudo_id FROM curso_itens WHERE curso_id=? ORDER BY ordem", (curso["id"],))]
+    return {"id": curso["id"], "titulo": curso["titulo"], "descricao": curso["descricao"], "nivel": curso["nivel"],
+            "personalizado": curso["categoria"] is None, "conteudo_ids": itens}
+
+
+# ---------- Certificados ----------
+def _novo_codigo(con):
+    while True:
+        codigo = "OUT-" + "-".join(secrets.token_hex(2).upper() for _ in range(3))
+        if not con.execute("SELECT 1 FROM certificados WHERE codigo=?", (codigo,)).fetchone():
+            return codigo
+
+
+def emitir_certificado(con, usuario, empresa_id, curso_id):
+    """Emite (ou devolve o já emitido) certificado de um curso concluído por inteiro. Levanta ValueError se não for o caso."""
+    curso = next((c for c in listar(con, usuario, empresa_id) if c["id"] == curso_id), None)
+    if not curso:
+        raise ValueError("Curso não encontrado.")
+    if curso["percentual"] < 100:
+        raise ValueError("Conclua todas as lições do curso para emitir o certificado.")
+    existente = con.execute("SELECT * FROM certificados WHERE usuario_id=? AND curso_id=?", (usuario["id"], curso_id)).fetchone()
+    if existente:
+        return dict(existente)
+    empresa = con.execute("SELECT nome FROM empresas WHERE id=?", (empresa_id,)).fetchone()
+    codigo = _novo_codigo(con)
+    con.execute("INSERT INTO certificados (codigo,usuario_id,curso_id,nome,curso_titulo,empresa_nome,licoes,acertos,respondidas) VALUES (?,?,?,?,?,?,?,?,?)",
+                (codigo, usuario["id"], curso_id, usuario["nome"], curso["titulo"], empresa["nome"] if empresa else None,
+                 curso["licoes"], curso["acertos"], curso["respondidas"]))
+    con.commit()
+    return dict(con.execute("SELECT * FROM certificados WHERE codigo=?", (codigo,)).fetchone())
+
+
+def certificado_publico(con, codigo):
+    """Dados mínimos para a verificação pública de um certificado (ou None)."""
+    r = con.execute("SELECT nome, curso_titulo, empresa_nome, licoes, emitido_em FROM certificados WHERE codigo=?", (str(codigo or "").strip().upper(),)).fetchone()
+    return dict(r) if r else None

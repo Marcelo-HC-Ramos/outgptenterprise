@@ -39,6 +39,7 @@ SITE = {  # lista fixa: nenhum outro arquivo é exposto
     "/app.js": ("app.js", "text/javascript; charset=utf-8", CSP_APP),
     "/dados.js": ("dados.js", "text/javascript; charset=utf-8", CSP_APP),
     "/pesquisa.html": ("pesquisa.html", "text/html; charset=utf-8", CSP_PESQUISA),
+    "/verificar.html": ("verificar.html", "text/html; charset=utf-8", CSP_PESQUISA),
 }
 SITE["/pesquisa"] = SITE["/pesquisa.html"]
 
@@ -654,14 +655,41 @@ def _curso_permitido(c, curso_id):
     return r
 
 
+@rota("POST", "/api/cursos", ("master", "admin"))
+def h_curso_criar(c):
+    """Curso personalizado: o admin escolhe e ordena as lições (conteúdos) da empresa."""
+    eid = _eid(c)
+    try:
+        cid = cursos.criar_personalizado(c.con, eid, texto(c.corpo.get("titulo"), "título", 200),
+                                         texto(c.corpo.get("descricao"), "descrição", 500, False) or None,
+                                         c.corpo.get("nivel", "Iniciante"), c.corpo.get("conteudo_ids"))
+    except ValueError as e:
+        raise Erro(400, str(e))
+    return {"id": cid}
+
+
+@rota("GET", r"/api/cursos/(\d+)/estrutura", ("master", "admin"))
+def h_curso_estrutura(c):
+    return cursos.estrutura(c.con, _curso_permitido(c, int(c.args[0])))
+
+
 @rota("PUT", r"/api/cursos/(\d+)", ("master", "admin"))
 def h_curso_editar(c):
-    _curso_permitido(c, int(c.args[0]))
-    c.con.execute("UPDATE cursos SET titulo=?, descricao=? WHERE id=?", (texto(c.corpo.get("titulo"), "título", 200),
-                                                                         texto(c.corpo.get("descricao"), "descrição", 500, False) or None, int(c.args[0])))
+    curso = _curso_permitido(c, int(c.args[0]))
+    titulo = texto(c.corpo.get("titulo"), "título", 200)
+    descricao = texto(c.corpo.get("descricao"), "descrição", 500, False) or None
+    nivel = c.corpo.get("nivel", curso["nivel"])
+    if "conteudo_ids" in c.corpo:                       # troca de lições: só em cursos personalizados
+        try:
+            cursos.atualizar_personalizado(c.con, curso, titulo, descricao, nivel, c.corpo["conteudo_ids"])
+        except ValueError as e:
+            raise Erro(400, str(e))
+        return {"ok": True}
+    if nivel not in cursos.NIVEIS:
+        raise Erro(400, "Nível inválido.")
+    c.con.execute("UPDATE cursos SET titulo=?, descricao=?, nivel=? WHERE id=?", (titulo, descricao, nivel, curso["id"]))
     c.con.commit()
     return {"ok": True}
-
 
 @rota("DELETE", r"/api/cursos/(\d+)", ("master", "admin"))
 def h_curso_excluir(c):
@@ -670,6 +698,30 @@ def h_curso_excluir(c):
     c.con.commit()
     return {"ok": True}
 
+
+# ----- certificados -----
+@rota("POST", r"/api/cursos/(\d+)/certificado")
+def h_certificado_emitir(c):
+    try:
+        return cursos.emitir_certificado(c.con, c.usuario, _eid(c), int(c.args[0]))
+    except ValueError as e:
+        raise Erro(400, str(e))
+
+
+@rota("GET", "/api/certificados")
+def h_certificados(c):
+    rows = c.con.execute("SELECT * FROM certificados WHERE usuario_id=? ORDER BY emitido_em DESC", (c.usuario["id"],)).fetchall()
+    return {"itens": [dict(r) for r in rows]}
+
+
+@rota("GET", r"/api/verificar/([A-Za-z0-9\-]{6,40})", None)
+def h_verificar(c):
+    """Verificação pública: qualquer pessoa com o código confere nome, curso e data (sem login)."""
+    limitar("verificar:" + c.ip, 30, 60)
+    r = cursos.certificado_publico(c.con, c.args[0])
+    if not r:
+        raise Erro(404, "Certificado não encontrado.")
+    return {"valido": True, **r}
 
 # ----- lacunas de conteúdo (perguntas que o assistente não soube responder) -----
 def _normalizar_pergunta(p):

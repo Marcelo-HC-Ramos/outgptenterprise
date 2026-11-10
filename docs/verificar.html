@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutGPT - Verificar certificado</title>
+  <style>
+    :root{--bg:#f5f6fb;--card:#fff;--text:#151a2d;--muted:#667090;--line:#e6e9f2;--primary:#6366f1;--ok:#10b981;--bad:#ef4444}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b0e1a;--card:#141929;--text:#eaedf8;--muted:#8e97b5;--line:#242b44}}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+    .wrap{max-width:560px;margin:0 auto;padding:40px 16px}
+    .logo{font-weight:800;font-size:1.4rem;margin-bottom:18px} .logo span{color:var(--primary)}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:24px}
+    h1{font-size:1.4rem;margin:0 0 6px} p{margin:0 0 12px} .muted{color:var(--muted)}
+    form{display:flex;gap:8px;margin:14px 0} input{flex:1;font:inherit;color:var(--text);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 14px;text-transform:uppercase}
+    button{font:inherit;font-weight:700;background:var(--primary);color:#fff;border:0;border-radius:12px;padding:11px 20px;cursor:pointer}
+    .res{margin-top:16px;border-radius:14px;padding:16px} .res.ok{background:rgba(16,185,129,.12);border:1px solid var(--ok)} .res.bad{background:rgba(239,68,68,.1);border:1px solid var(--bad)}
+    .res h2{margin:0 0 8px;font-size:1.05rem} dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 14px} dt{color:var(--muted)} dd{margin:0;font-weight:600}
+    a{color:var(--primary)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Out<span>GPT</span></div>
+  <div class="card">
+    <h1>Verificar certificado</h1>
+    <p class="muted">Digite o código que aparece no certificado (ex.: OUT-1A2B-3C4D-5E6F) para conferir se ele é autêntico.</p>
+    <form id="f"><input id="codigo" placeholder="OUT-XXXX-XXXX-XXXX" maxlength="40" autocomplete="off" required><button>Verificar</button></form>
+    <div id="res" role="status"></div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+async function verificar(codigo) {
+  codigo = codigo.trim().toUpperCase();
+  if (!/^[A-Z0-9-]{6,40}$/.test(codigo)) { $("#res").innerHTML = `<div class="res bad"><h2>Código inválido</h2><p class="muted">Use apenas letras, números e hífens.</p></div>`; return; }
+  try {
+    const r = await fetch("/api/verificar/" + encodeURIComponent(codigo));
+    const d = await r.json();
+    if (!r.ok) { $("#res").innerHTML = `<div class="res bad"><h2>❌ Certificado não encontrado</h2><p class="muted">${esc(d.mensagem || "Confira o código digitado.")}</p></div>`; return; }
+    const data = new Date(d.emitido_em.replace(" ", "T")).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+    $("#res").innerHTML = `<div class="res ok"><h2>✅ Certificado autêntico</h2><dl><dt>Nome</dt><dd>${esc(d.nome)}</dd><dt>Curso</dt><dd>${esc(d.curso_titulo)}</dd>${d.empresa_nome ? `<dt>Empresa</dt><dd>${esc(d.empresa_nome)}</dd>` : ""}<dt>Lições</dt><dd>${d.licoes}</dd><dt>Emitido em</dt><dd>${esc(data)}</dd></dl></div>`;
+  } catch { $("#res").innerHTML = `<div class="res bad"><h2>Não foi possível verificar</h2><p class="muted">Sem conexão com o servidor.</p></div>`; }
+}
+$("#f").onsubmit = e => { e.preventDefault(); verificar($("#codigo").value); };
+const inicial = new URLSearchParams(location.search).get("codigo");
+if (inicial) { $("#codigo").value = inicial; verificar(inicial); }
+</script>
+</body>
+</html>

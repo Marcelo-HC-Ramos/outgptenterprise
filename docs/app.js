@@ -294,7 +294,7 @@ const cabecalho = (titulo, sub, acoes = "") => `<div class="page-head"><div><h1>
 // ---------- Início ----------
 const anel = pct => `<div class="anel" style="--p:${pct}"><span>${pct}%</span></div>`;
 const cartaoCurso = c => `<a class="curso" href="#/curso/${c.id}">
-  <div class="curso-topo"><span class="curso-ico">${iconeDe(c.categoria)}</span>${c.percentual === 100 ? '<span class="badge ok">Concluído</span>' : c.concluidas ? '<span class="badge">Em andamento</span>' : '<span class="badge soft">Novo</span>'}</div>
+  <div class="curso-topo"><span class="curso-ico">${iconeDe(c.categoria)}</span><span class="curso-selos">${c.personalizado ? '<span class="badge soft">Personalizado</span>' : ""}${c.percentual === 100 ? '<span class="badge ok">Concluído</span>' : c.concluidas ? '<span class="badge">Em andamento</span>' : '<span class="badge soft">Novo</span>'}</span></div>
   <h3>${esc(c.titulo)}</h3><p class="muted">${c.licoes} lições · ~${c.minutos} min</p>
   <div class="progress"><i style="width:${c.percentual}%"></i></div><small class="muted">${c.concluidas} de ${c.licoes} concluídas</small></a>`;
 
@@ -351,22 +351,25 @@ async function telaCursos() {
   view.innerHTML = cabecalho("Cursos", "Aprenda no seu ritmo. Cada curso é montado com os procedimentos da sua empresa.") + `<div class="card">Carregando...</div>`;
   ligarSeletorEmpresa(telaCursos);
   let d; try { d = await Dados.cursos(); } catch (err) { return erroTela(err); }
-  const cats = [...new Set(d.itens.map(c => c.categoria))];
-  const acoes = d.pode_editar ? `<button class="btn" id="sinc" title="Cria cursos para categorias novas e inclui conteúdos novos">↻ Atualizar cursos</button>` : "";
+  const cats = [...new Set(d.itens.filter(c => c.categoria).map(c => c.categoria))], temPers = d.itens.some(c => c.personalizado);
+  const acoes = (estado.demo ? "" : `<button class="btn" id="meus-cert">🎓 Certificados</button>`) + (d.pode_editar ? `<button class="btn" id="sinc" title="Cria cursos para categorias novas e inclui conteúdos novos">↻ Atualizar cursos</button><button class="btn primary" id="novo-curso">+ Curso personalizado</button>` : "");
   view.innerHTML = cabecalho("Cursos", `${d.itens.length} cursos · ${d.resumo.licoes} lições · ${d.resumo.percentual}% concluído`, acoes) + (d.itens.length ? `
-    <div class="chips-linha"><button class="chip on" data-cat="">Todos</button>${cats.map(c => `<button class="chip" data-cat="${esc(c)}">${iconeDe(c)} ${esc(c)}</button>`).join("")}</div>
+    <div class="chips-linha"><button class="chip on" data-cat="">Todos</button>${cats.map(c => `<button class="chip" data-cat="${esc(c)}">${iconeDe(c)} ${esc(c)}</button>`).join("")}${temPers ? `<button class="chip" data-cat="__pers">⭐ Personalizados</button>` : ""}</div>
     <div class="grid" id="lista-cursos"></div>` : `<div class="card vazio"><div class="vazio-ico">🎓</div><h2>Ainda não há cursos</h2><p class="muted">Cadastre conteúdos na Biblioteca para gerar cursos.</p></div>`);
   ligarSeletorEmpresa(telaCursos);
   const pintar = cat => {
-    $("#lista-cursos").innerHTML = d.itens.filter(c => !cat || c.categoria === cat).map(c => d.pode_editar
-      ? `<div class="curso-wrap">${cartaoCurso(c)}<div class="curso-admin"><button class="btn mini" data-ren="${c.id}">Renomear</button><button class="btn mini danger" data-del="${c.id}">Excluir</button></div></div>` : cartaoCurso(c)).join("");
+    $("#lista-cursos").innerHTML = d.itens.filter(c => !cat || (cat === "__pers" ? c.personalizado : c.categoria === cat)).map(c => d.pode_editar
+      ? `<div class="curso-wrap">${cartaoCurso(c)}<div class="curso-admin">${c.personalizado ? `<button class="btn mini" data-edl="${c.id}">Editar lições</button>` : ""}<button class="btn mini" data-ren="${c.id}">Renomear</button><button class="btn mini danger" data-del="${c.id}">Excluir</button></div></div>` : cartaoCurso(c)).join("");
     view.querySelectorAll("[data-ren]").forEach(b => b.onclick = () => { const c = d.itens.find(x => x.id === +b.dataset.ren);
       janela("Renomear curso", `<label class="field">Título<input id="c-tit" maxlength="200" required value="${esc(c.titulo)}"></label><label class="field">Descrição<input id="c-desc" maxlength="500" value="${esc(c.descricao)}"></label>`,
         { aoSalvar: async () => { await api(`/api/cursos/${c.id}`, { method: "PUT", body: { titulo: $("#c-tit").value, descricao: $("#c-desc").value } }); telaCursos(); } }); });
+    view.querySelectorAll("[data-edl]").forEach(b => b.onclick = async () => { try { editorCurso(await api(`/api/cursos/${b.dataset.edl}/estrutura${qEmpresa()}`), telaCursos); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
     view.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => { const c = d.itens.find(x => x.id === +b.dataset.del);
       if (await confirmar(`Excluir o curso "${c.titulo}"? Os conteúdos continuam na Biblioteca; o progresso dos usuários neste curso será apagado.`)) { await api(`/api/cursos/${c.id}`, { method: "DELETE" }); telaCursos(); } });
   };
   if (d.itens.length) { pintar(""); view.querySelectorAll(".chips-linha .chip").forEach(b => b.onclick = () => { view.querySelectorAll(".chips-linha .chip").forEach(x => x.classList.toggle("on", x === b)); pintar(b.dataset.cat); }); }
+  if ($("#novo-curso")) $("#novo-curso").onclick = () => editorCurso(null, telaCursos);
+  if ($("#meus-cert")) $("#meus-cert").onclick = listarCertificados;
   if ($("#sinc")) $("#sinc").onclick = async () => { const r = await api("/api/cursos/sincronizar" + qEmpresa(), { method: "POST" }); janela("Cursos atualizados", `<p>${r.criados} curso(s) criado(s) e ${r.anexados} lição(ões) adicionada(s).</p>`); telaCursos(); };
 }
 
@@ -402,6 +405,7 @@ async function telaCurso(id, licaoId) {
           </div>
         </div></div>`;
     if ($("#gerar-quiz")) $("#gerar-quiz").onclick = gerarQuiz;
+    if ($("#emitir-cert")) $("#emitir-cert").onclick = async () => { try { mostrarCertificado(await api(`/api/cursos/${c.id}/certificado${qEmpresa()}`, { method: "POST" })); } catch (e) { janela("Não foi possível emitir", `<p>${esc(e.message)}</p>`); } };
     view.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { atual = +b.dataset.i; desenhar(); scrollTo(0, 0); });
     $("#ant").onclick = () => { atual--; desenhar(); scrollTo(0, 0); };
     $("#prox").onclick = () => { atual++; desenhar(); scrollTo(0, 0); };
@@ -437,8 +441,64 @@ async function telaCurso(id, licaoId) {
     telaCurso(id, c.licoes[atual]?.conteudo_id);
   };
   const finalCurso = () => { const resp = c.licoes.filter(x => x.acertou !== null), ac = resp.filter(x => x.acertou).length;
-    return `<div class="card parabens"><div class="vazio-ico">🎉</div><h2>Curso concluído!</h2><p class="muted">Você completou as ${c.licoes.length} lições${resp.length ? ` e acertou ${ac} de ${resp.length} perguntas` : ""}.</p><a class="btn primary" href="#/cursos">Ver outros cursos</a></div>`; };
+    return `<div class="card parabens"><div class="vazio-ico">🎉</div><h2>Curso concluído!</h2><p class="muted">Você completou as ${c.licoes.length} lições${resp.length ? ` e acertou ${ac} de ${resp.length} perguntas` : ""}.</p>${estado.demo ? "" : `<button class="btn primary" id="emitir-cert">🎓 Emitir certificado</button> `}<a class="btn" href="#/cursos">Ver outros cursos</a></div>`; };
   desenhar();
+}
+
+// ---------- Editor de curso personalizado ----------
+function editorCurso(curso, depois) {
+  Dados.conteudos().then(({ itens: todos }) => {
+    const porId = new Map(todos.map(c => [c.id, c]));
+    let sel = curso ? curso.conteudo_ids.filter(i => porId.has(i)) : [];
+    const d = janela(curso ? "Editar lições do curso" : "Novo curso personalizado", `
+      <div class="row2"><label class="field">Título *<input id="ec-tit" maxlength="200" value="${esc(curso?.titulo)}"></label>
+        <label class="field">Nível<select id="ec-nivel">${["Iniciante", "Intermediário", "Avançado"].map(n => `<option ${curso?.nivel === n ? "selected" : ""}>${n}</option>`).join("")}</select></label></div>
+      <label class="field">Descrição<input id="ec-desc" maxlength="500" value="${esc(curso?.descricao)}"></label>
+      <div class="editor-curso">
+        <div><h4>Biblioteca</h4><input id="ec-q" placeholder="Filtrar conteúdos..." aria-label="Filtrar"><div id="ec-bib" class="lista-sel"></div></div>
+        <div><h4>Lições do curso (<span id="ec-n">0</span>)</h4><ol id="ec-sel" class="lista-sel"></ol><p class="muted" id="ec-vazio">Clique em "+" nos conteúdos da esquerda.</p></div>
+      </div>`, { larga: true, salvar: curso ? "Salvar" : "Criar curso", aoSalvar: async () => {
+        if (!$("#ec-tit", d).value.trim()) throw new Error("Dê um título ao curso.");
+        if (!sel.length) throw new Error("Escolha pelo menos uma lição.");
+        const corpo = { titulo: $("#ec-tit", d).value, descricao: $("#ec-desc", d).value, nivel: $("#ec-nivel", d).value, conteudo_ids: sel };
+        if (curso) await api(`/api/cursos/${curso.id}${qEmpresa()}`, { method: "PUT", body: corpo });
+        else await api("/api/cursos", { method: "POST", body: { ...corpo, empresa_id: estado.empresaId } });
+        depois();
+      } });
+    const pintar = () => {
+      const q = $("#ec-q", d).value.toLowerCase();
+      $("#ec-bib", d).innerHTML = todos.filter(c => `${c.titulo} ${c.categoria} ${c.codigo}`.toLowerCase().includes(q)).slice(0, 150).map(c =>
+        `<button type="button" class="item-sel" data-add="${c.id}" ${sel.includes(c.id) ? "disabled" : ""}><span>${sel.includes(c.id) ? "✓" : "+"}</span><span>${esc(c.titulo)}<small class="muted"> · ${esc(c.categoria)}</small></span></button>`).join("");
+      $("#ec-sel", d).innerHTML = sel.map((id, i) => `<li><span>${esc(porId.get(id).titulo)}</span><span class="mov"><button type="button" class="mini-btn" data-sobe="${i}" ${i === 0 ? "disabled" : ""} title="Subir">↑</button><button type="button" class="mini-btn" data-desce="${i}" ${i === sel.length - 1 ? "disabled" : ""} title="Descer">↓</button><button type="button" class="mini-btn" data-tira="${i}" title="Remover">✕</button></span></li>`).join("");
+      $("#ec-n", d).textContent = sel.length; $("#ec-vazio", d).classList.toggle("hidden", sel.length > 0);
+      d.querySelectorAll("[data-add]").forEach(b => b.onclick = () => { if (sel.length < 60) { sel.push(+b.dataset.add); pintar(); } });
+      d.querySelectorAll("[data-tira]").forEach(b => b.onclick = () => { sel.splice(+b.dataset.tira, 1); pintar(); });
+      d.querySelectorAll("[data-sobe]").forEach(b => b.onclick = () => { const i = +b.dataset.sobe; [sel[i - 1], sel[i]] = [sel[i], sel[i - 1]]; pintar(); });
+      d.querySelectorAll("[data-desce]").forEach(b => b.onclick = () => { const i = +b.dataset.desce; [sel[i + 1], sel[i]] = [sel[i], sel[i + 1]]; pintar(); });
+    };
+    $("#ec-q", d).oninput = pintar; pintar();
+  }).catch(e => janela("Erro", `<p>${esc(e.message)}</p>`));
+}
+
+// ---------- Certificados ----------
+function mostrarCertificado(c) {
+  const url = `${location.origin}/verificar.html?codigo=${encodeURIComponent(c.codigo)}`;
+  const data = new Date(c.emitido_em.replace(" ", "T")).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+  const d = janela("Certificado de conclusão", `
+    <div class="certificado"><div class="cert-marca">Out<span>GPT</span> Enterprise</div><h2>Certificado de Conclusão</h2>
+      <p>Certificamos que</p><div class="nome">${esc(c.nome)}</div><p>concluiu o curso</p><div class="curso-nome">${esc(c.curso_titulo)}</div>
+      <p class="muted">${c.empresa_nome ? `${esc(c.empresa_nome)} · ` : ""}${c.licoes} lição(ões) concluída(s)${c.respondidas ? ` · ${c.acertos} de ${c.respondidas} perguntas corretas` : ""}</p>
+      <p>${esc(data)}</p><p class="cert-codigo muted">Código ${esc(c.codigo)}<br>Verifique em ${esc(url)}</p></div>
+    <div class="cert-acoes"><button class="btn primary" id="cert-print">🖨 Imprimir / salvar em PDF</button></div>`, { larga: true });
+  $("#cert-print", d).onclick = () => window.print();
+}
+async function listarCertificados() {
+  try {
+    const { itens } = await api("/api/certificados");
+    const d = janela("Meus certificados", itens.length ? `<ul class="lista-cert">${itens.map(c => `<li><div><strong>${esc(c.curso_titulo)}</strong><br><small class="muted">${esc(c.codigo)} · ${quando(c.emitido_em)}</small></div><button class="btn mini" data-abrir="${c.codigo}">Abrir</button></li>`).join("")}</ul>`
+      : `<p class="muted">Você ainda não tem certificados. Conclua todas as lições de um curso para emitir o seu.</p>`, { larga: true });
+    d.querySelectorAll("[data-abrir]").forEach(b => b.onclick = () => { mostrarCertificado(itens.find(c => c.codigo === b.dataset.abrir)); });
+  } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); }
 }
 
 // ---------- Assistente (RAG + LLM) ----------

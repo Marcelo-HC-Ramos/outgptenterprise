@@ -255,3 +255,32 @@ hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 .mini-btn:hover{border-color:var(--primary);background:var(--soft)}
 
 .banner-quiz{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 14px}
+
+/* Editor de curso e certificado */
+.editor-curso{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.editor-curso h4{margin:0 0 6px}
+.lista-sel{max-height:300px;overflow-y:auto;border:1px solid var(--line);border-radius:12px;padding:4px;margin:6px 0 0;list-style:none}
+.item-sel{display:flex;gap:8px;width:100%;text-align:left;background:none;border:0;color:var(--text);padding:7px 8px;border-radius:9px;cursor:pointer;font:inherit;font-size:.86rem}
+.item-sel:hover:not(:disabled){background:var(--soft)} .item-sel:disabled{opacity:.5;cursor:default}
+ol.lista-sel{counter-reset:n;padding:4px} ol.lista-sel li{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 6px;font-size:.86rem;border-bottom:1px solid var(--line)}
+ol.lista-sel li::before{counter-increment:n;content:counter(n)".";color:var(--muted);margin-right:4px}
+ol.lista-sel li>span:first-of-type{flex:1}
+.mov{display:flex;gap:3px;flex:none}
+.curso-selos{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.certificado{border:6px double var(--primary);border-radius:14px;padding:34px 28px;text-align:center;background:var(--card)}
+.certificado h2{font-size:1.7rem;letter-spacing:.08em;text-transform:uppercase;margin:10px 0 16px}
+.certificado .cert-marca{font-weight:800;font-size:1.1rem} .certificado .cert-marca span{color:var(--primary)}
+.certificado .nome{display:inline-block;font-size:1.9rem;font-weight:800;border-bottom:1px solid var(--line);padding:0 28px;margin:4px 0 12px}
+.certificado .curso-nome{font-size:1.35rem;font-weight:700;color:var(--primary);margin:2px 0 12px}
+.cert-codigo{font-size:.75rem;margin-top:18px;word-break:break-all}
+.cert-acoes{margin-top:14px;text-align:center}
+.lista-cert{list-style:none;padding:0;margin:0} .lista-cert li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+@media(max-width:700px){.editor-curso{grid-template-columns:1fr}}
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body *{visibility:hidden}
+  .certificado,.certificado *{visibility:visible}
+  dialog.modal{position:static;box-shadow:none;border:0;background:none;width:auto;max-height:none;padding:0}
+  .certificado{position:fixed;inset:0;margin:0;display:flex;flex-direction:column;justify-content:center;background:#fff!important;color:#151a2d!important;border-color:#4f46e5}
+  .certificado .muted{color:#555!important}
+}
