@@ -1,35 +1,84 @@
--- OutGPT Enterprise - esquema SQLite
+-- OutGPT Enterprise - esquema SQLite (versão 2: multiempresa, com autenticação)
 PRAGMA foreign_keys = ON;
 
--- ===== Núcleo da plataforma =====
-CREATE TABLE IF NOT EXISTS usuarios (
+-- ===== Empresas (clientes da plataforma) =====
+CREATE TABLE IF NOT EXISTS empresas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  perfil TEXT NOT NULL CHECK (perfil IN ('colaborador','gestor')),
+  nome TEXT NOT NULL UNIQUE,
+  ativa INTEGER NOT NULL DEFAULT 1 CHECK (ativa IN (0,1)),
   criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 
-CREATE TABLE IF NOT EXISTS documentos (
+-- ===== Usuários =====
+-- tipo: master            dono do sistema (sem empresa; vê e administra tudo)
+--       admin             administrador de uma empresa (gerencia conteúdos e usuários dela)
+--       funcionario       funcionário da empresa
+--       colaborador_interno  colaborador com vínculo interno (ex.: estagiário, temporário)
+--       colaborador_externo  prestador/consultor externo (só vê conteúdos marcados como 'todos')
+CREATE TABLE IF NOT EXISTS usuarios (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome_arquivo TEXT NOT NULL,
-  tipo TEXT NOT NULL CHECK (tipo IN ('PDF','TXT','DOCX')),
-  status TEXT NOT NULL DEFAULT 'Processando' CHECK (status IN ('Processando','Indexado','Erro')),
-  enviado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
-  enviado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  empresa_id INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  senha_hash TEXT NOT NULL,
+  tipo TEXT NOT NULL CHECK (tipo IN ('master','admin','funcionario','colaborador_interno','colaborador_externo')),
+  ativo INTEGER NOT NULL DEFAULT 1 CHECK (ativo IN (0,1)),
+  tentativas_falhas INTEGER NOT NULL DEFAULT 0,
+  bloqueado_ate TEXT,
+  ultimo_login TEXT,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  CHECK ((tipo = 'master' AND empresa_id IS NULL) OR (tipo <> 'master' AND empresa_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_usuarios_empresa ON usuarios(empresa_id);
+
+-- Sessões de login (guarda só o hash do token; o token vai no cookie)
+CREATE TABLE IF NOT EXISTS sessoes (
+  token_hash TEXT PRIMARY KEY,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  criada_em TEXT NOT NULL DEFAULT (datetime('now')),
+  expira_em TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS chunks (
+-- ===== Conteúdos das empresas (base de conhecimento do RAG) =====
+-- visibilidade: 'todos'    = qualquer usuário da empresa, inclusive colaboradores externos
+--               'internos' = somente admin, funcionários e colaboradores internos
+CREATE TABLE IF NOT EXISTS conteudos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  documento_id INTEGER NOT NULL REFERENCES documentos(id) ON DELETE CASCADE,
-  ordem INTEGER NOT NULL,
-  pagina INTEGER,
+  empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  codigo TEXT NOT NULL,
+  titulo TEXT NOT NULL,
+  categoria TEXT NOT NULL,
   texto TEXT NOT NULL,
-  UNIQUE (documento_id, ordem)
+  pergunta_exemplo TEXT,
+  contem_pii INTEGER NOT NULL DEFAULT 0 CHECK (contem_pii IN (0,1)),
+  visibilidade TEXT NOT NULL DEFAULT 'internos' CHECK (visibilidade IN ('todos','internos')),
+  criado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  atualizado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (empresa_id, codigo)
 );
+CREATE INDEX IF NOT EXISTS idx_conteudos_empresa ON conteudos(empresa_id);
 
+-- ===== Histórico de perguntas ao assistente (a pergunta é gravada já anonimizada) =====
+CREATE TABLE IF NOT EXISTS historico_duvidas (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
+  empresa_id INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
+  pergunta TEXT NOT NULL,
+  resposta TEXT NOT NULL,
+  fontes TEXT,                          -- JSON: [{"codigo","titulo"}]
+  gerado_por_ia INTEGER NOT NULL DEFAULT 0,
+  modelo TEXT,
+  tokens_entrada INTEGER,
+  tokens_saida INTEGER,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_historico_empresa ON historico_duvidas(empresa_id, criado_em);
+
+-- ===== Trilhas de aprendizagem =====
 CREATE TABLE IF NOT EXISTS trilhas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  empresa_id INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
   titulo TEXT NOT NULL,
   nivel TEXT NOT NULL CHECK (nivel IN ('Iniciante','Intermediário','Avançado'))
 );
@@ -39,9 +88,8 @@ CREATE TABLE IF NOT EXISTS modulos (
   trilha_id INTEGER NOT NULL REFERENCES trilhas(id) ON DELETE CASCADE,
   ordem INTEGER NOT NULL,
   titulo TEXT NOT NULL,
-  conteudo TEXT NOT NULL,
-  documento_id INTEGER REFERENCES documentos(id) ON DELETE SET NULL,
-  fonte TEXT,
+  conteudo_id INTEGER REFERENCES conteudos(id) ON DELETE SET NULL,
+  texto TEXT NOT NULL,
   UNIQUE (trilha_id, ordem)
 );
 
@@ -59,26 +107,6 @@ CREATE TABLE IF NOT EXISTS progresso (
   trilha_id INTEGER NOT NULL REFERENCES trilhas(id) ON DELETE CASCADE,
   percentual INTEGER NOT NULL DEFAULT 0 CHECK (percentual BETWEEN 0 AND 100),
   PRIMARY KEY (usuario_id, trilha_id)
-);
-
-CREATE TABLE IF NOT EXISTS historico_duvidas (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  usuario_id INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
-  pergunta TEXT NOT NULL,
-  resposta TEXT NOT NULL,
-  fontes TEXT,
-  criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-);
-
--- ===== Dataset de SOPs (carregado por rag.py a partir do CSV) =====
-CREATE TABLE IF NOT EXISTS sops (
-  id TEXT PRIMARY KEY,
-  categoria TEXT NOT NULL,
-  procedimento_titulo TEXT NOT NULL,
-  contexto_documental TEXT NOT NULL,
-  pergunta_utilizador TEXT,
-  resposta_esperada TEXT,
-  contem_pii INTEGER NOT NULL DEFAULT 0 CHECK (contem_pii IN (0,1))
 );
 
 -- ===== Pesquisa com especialistas =====

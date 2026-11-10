@@ -1,4 +1,4 @@
-"""Popula outgpt.db com dados fictícios gerados pelo Faker (pt_BR).
+"""Popula a PESQUISA em outgpt.db com respostas fictícias geradas pelo Faker (pt_BR).
 
 Uso:  python seed_faker.py              # adiciona dados fictícios (padrão: 40 especialistas)
       python seed_faker.py -n 100       # quantidade de especialistas
@@ -8,7 +8,6 @@ Os registros fictícios são identificados pelo domínio de e-mail @faker.exampl
 Seed fixa (--seed) torna a geração reproduzível.
 """
 import argparse
-import json
 import random
 import sqlite3
 from pathlib import Path
@@ -41,24 +40,11 @@ COMENTARIOS = [
     "Seria valioso ter versão offline para ambientes com restrição de internet.",
 ]
 
-PERGUNTAS_CHAT = [
-    ("Como abro um chamado de prioridade alta?", "Registre título, descrição, impacto e prioridade Alta; o SLA é de 30 minutos.", "SOP_Abertura_de_Chamados.pdf, p. 3"),
-    ("Como resolvo erro de conexão na VPN?", "Verifique relógio, 2FA e teste em outra rede antes de abrir chamado.", "Manual_VPN_Corporativa.pdf, p. 12"),
-    ("Qual a validade de uma senha temporária?", "Senhas temporárias expiram em 24 horas.", "Politica_Reset_de_Senhas.pdf, p. 2"),
-    ("Quando devo escalonar para o nível 2?", "Após 15 minutos sem solução, registrando ações e evidências.", "FAQ_Suporte_Nivel1.txt, seção 2"),
-    ("Onde baixo o cliente VPN?", "Somente pelo portal interno de software.", "Manual_VPN_Corporativa.pdf, p. 5"),
-]
-
 
 def limpar(con):
     ids = [r[0] for r in con.execute("SELECT id FROM especialistas WHERE email LIKE ?", (f"%@{DOMINIO}",))]
     con.executemany("DELETE FROM especialistas WHERE id=?", [(i,) for i in ids])   # respostas caem em cascata
-    u = [r[0] for r in con.execute("SELECT id FROM usuarios WHERE email LIKE ?", (f"%@{DOMINIO}",))]
-    con.executemany("DELETE FROM historico_duvidas WHERE usuario_id=?", [(i,) for i in u])
-    con.executemany("DELETE FROM usuarios WHERE id=?", [(i,) for i in u])          # progresso cai em cascata
-    d = con.execute("DELETE FROM documentos WHERE nome_arquivo LIKE 'FAKE_%'").rowcount  # chunks em cascata
-    print(f"Removidos: {len(ids)} especialistas, {len(u)} usuários, {d} documentos fictícios.")
-
+    print(f"Removidos: {len(ids)} especialistas fictícios.")
 
 def nota_enviesada(rnd, centro):
     """Nota 1-5 concentrada em torno de 'centro' (pesquisa tende a ser favorável)."""
@@ -106,28 +92,6 @@ def gerar(con, n, seed):
                 linhas.append((eid, pid, None, None, rnd.choice(COMENTARIOS), criado))
         con.executemany("INSERT INTO respostas (especialista_id,pergunta_id,opcao_id,valor_escala,texto_livre,criado_em) VALUES (?,?,?,?,?,?)", linhas)
 
-    # --- Usuários, documentos, chunks, progresso e histórico ---
-    uids = []
-    for i in range(max(5, n // 4)):
-        uids.append(con.execute("INSERT INTO usuarios (nome,email,perfil) VALUES (?,?,?)",
-                                (fake.name(), f"{fake.user_name()}{i}@{DOMINIO}", rnd.choices(["colaborador", "gestor"], weights=[8, 2])[0])).lastrowid)
-    trilhas = [r[0] for r in con.execute("SELECT id FROM trilhas")]
-    for u in uids:
-        for t in rnd.sample(trilhas, rnd.randint(0, len(trilhas))):
-            con.execute("INSERT OR IGNORE INTO progresso (usuario_id,trilha_id,percentual) VALUES (?,?,?)", (u, t, rnd.choice([0, 20, 40, 60, 80, 100])))
-
-    for k in range(8):
-        ext = rnd.choice(["PDF", "TXT"])
-        did = con.execute("INSERT INTO documentos (nome_arquivo,tipo,status,enviado_por) VALUES (?,?,?,?)",
-                          (f"FAKE_{fake.word().capitalize()}_{k + 1}.{ext.lower()}", ext, rnd.choices(["Indexado", "Processando", "Erro"], weights=[8, 1, 1])[0], rnd.choice(uids))).lastrowid
-        con.executemany("INSERT INTO chunks (documento_id,ordem,pagina,texto) VALUES (?,?,?,?)",
-                        [(did, c + 1, c // 3 + 1, fake.paragraph(nb_sentences=4)) for c in range(rnd.randint(5, 15))])
-
-    for _ in range(max(10, n // 2)):
-        p, r, f = rnd.choice(PERGUNTAS_CHAT)
-        con.execute("INSERT INTO historico_duvidas (usuario_id,pergunta,resposta,fontes,criado_em) VALUES (?,?,?,?,?)",
-                    (rnd.choice(uids), p, r, f, fake.date_time_between(start_date="-30d", end_date="now").strftime("%Y-%m-%d %H:%M:%S")))
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -144,7 +108,7 @@ def main():
         if not a.limpar:
             gerar(con, a.n, a.seed)
     if not a.limpar:
-        for t in ("especialistas", "respostas", "usuarios", "documentos", "chunks", "progresso", "historico_duvidas"):
+        for t in ("especialistas", "respostas"):
             print(f"{t:18} {con.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0]}")
     con.close()
 

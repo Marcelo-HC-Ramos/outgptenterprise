@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutGPT - Pesquisa com Especialistas</title>
+  <style>
+    :root{--bg:#f5f6fb;--card:#fff;--text:#151a2d;--muted:#667090;--line:#e6e9f2;--soft:#eef0fb;--primary:#6366f1;--ok:#10b981;--bad:#ef4444;--warn:#f59e0b;--grad:linear-gradient(135deg,#6366f1,#8b5cf6 50%,#22d3ee)}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b0e1a;--card:#141929;--text:#eaedf8;--muted:#8e97b5;--line:#242b44;--soft:#1b2140}}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+    .wrap{max-width:820px;margin:0 auto;padding:24px 16px 60px}
+    .hero{background:var(--grad);color:#fff;border-radius:22px;padding:28px;margin-bottom:18px}
+    .hero h1{margin:0 0 6px;font-size:1.7rem;letter-spacing:-.6px} .hero p{margin:0;opacity:.93}
+    .tabs{display:flex;gap:8px;margin-bottom:16px}
+    .tab{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:12px;padding:10px 18px;font:inherit;font-weight:700;cursor:pointer}
+    .tab.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+    .spacer{flex:1}
+    a.link{color:var(--primary);font-weight:600;text-decoration:none;align-self:center}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:16px}
+    h2{font-size:1.05rem;margin:0 0 14px}
+    .q-num{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--soft);color:var(--primary);font-size:.8rem;font-weight:700;margin-right:8px}
+    label.field{display:flex;flex-direction:column;gap:5px;font-size:.85rem;font-weight:600;margin-bottom:12px}
+    input[type=text],input[type=email],input[type=number],select,textarea{font:inherit;color:var(--text);padding:10px 13px;border:1px solid var(--line);border-radius:12px;background:var(--card);width:100%}
+    textarea{min-height:110px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .opt{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border:1px solid var(--line);border-radius:12px;margin:7px 0;cursor:pointer}
+    .opt:hover{border-color:var(--primary);background:var(--soft)} .opt input{margin-top:5px}
+    .scale{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+    .scale label{display:flex;justify-content:center;padding:14px 4px;border:1px solid var(--line);border-radius:12px;cursor:pointer;font-weight:700}
+    .scale label:hover,.scale label:has(input:checked){border-color:var(--primary);background:var(--soft);color:var(--primary)}
+    .legend{display:flex;justify-content:space-between;font-size:.75rem;color:var(--muted);margin-top:6px}
+    .card.err{border-color:var(--bad)}
+    .btn{background:var(--primary);color:#fff;border:0;border-radius:12px;padding:13px 26px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+    .btn.sec{background:var(--card);color:var(--text);border:1px solid var(--line);padding:10px 16px}
+    .btn:disabled{opacity:.6}
+    .msg{margin:14px 0;padding:12px 14px;border-radius:12px;font-weight:600}
+    .msg.ok{background:rgba(16,185,129,.15);color:var(--ok)} .msg.bad{background:rgba(239,68,68,.13);color:var(--bad)} .msg.demo{background:rgba(245,158,11,.14);color:var(--warn);font-weight:500;font-size:.9rem}
+    .small{font-size:.8rem;color:var(--muted)}
+    .bar{display:grid;grid-template-columns:minmax(120px,40%) 1fr 32px;gap:10px;align-items:center;margin:8px 0;font-size:.88rem}
+    .track{height:10px;background:var(--soft);border-radius:99px;overflow:hidden} .track i{display:block;height:100%;background:linear-gradient(90deg,#6366f1,#22d3ee)}
+    .media{font-size:2rem;font-weight:800;color:var(--primary)} .media small{font-size:.9rem;font-weight:400;color:var(--muted)}
+    blockquote{margin:8px 0;padding:10px 14px;background:var(--soft);border-radius:12px;font-size:.92rem}
+    .hidden{display:none}
+    :focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+    @media(max-width:560px){.row{grid-template-columns:1fr}.scale label{padding:10px 2px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <h1>Pesquisa com especialistas</h1>
+    <p>Sua opinião sobre a importância do <strong>OutGPT Enterprise</strong> (IA generativa com RAG para onboarding e retenção do conhecimento) em empresas e instituições de ensino. Leva cerca de 3 minutos.</p>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab on" id="t-resp" role="tab">Responder</button>
+    <button class="tab" id="t-res" role="tab">Resultados</button>
+    <span class="spacer"></span>
+    <a class="link" href="./">← Voltar ao OutGPT</a>
+  </div>
+  <div id="aviso"></div>
+
+  <section id="v-resp">
+    <form id="form" novalidate>
+      <div class="card">
+        <h2>Sobre você</h2>
+        <div class="row">
+          <label class="field">Nome *<input type="text" id="nome" maxlength="120"></label>
+          <label class="field">E-mail (opcional)<input type="email" id="email" maxlength="160"></label>
+        </div>
+        <div class="row">
+          <label class="field">Cargo / função *<input type="text" id="cargo" maxlength="120"></label>
+          <label class="field">Organização *<input type="text" id="org" maxlength="160"></label>
+        </div>
+        <div class="row">
+          <label class="field">Tipo de organização *
+            <select id="tipo"><option value="">Selecione...</option><option>Empresa</option><option>Instituição de ensino</option><option>Consultoria / outro</option></select></label>
+          <label class="field">Anos de experiência na área<input type="number" id="anos" min="0" max="60"></label>
+        </div>
+      </div>
+      <div id="perguntas"></div>
+      <div class="card">
+        <label class="opt" style="margin:0"><input type="checkbox" id="consent">
+          <span class="small">Concordo que minhas respostas sejam usadas, de forma acadêmica, no trabalho de PLN da Fatec Cotia, em conformidade com a LGPD.</span></label>
+      </div>
+      <button class="btn" id="enviar">Enviar respostas</button>
+      <div id="retorno" role="status"></div>
+    </form>
+  </section>
+
+  <section id="v-res" class="hidden">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px">
+      <div class="small" id="resumo">Carregando...</div>
+      <a class="btn sec" id="csv" href="/api/exportar.csv">⬇ Exportar CSV</a>
+    </div>
+    <div id="out"></div>
+  </section>
+</div>
+
+<script src="dados.js"></script>
+<script>
+// Página autônoma: com o servidor Python usa o SQLite; sem ele (GitHub Pages / arquivo local) roda em modo demonstração
+// com os dados fictícios de dados.js e guarda novas respostas só neste navegador.
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const DEMO_KEY = "outgpt_respostas_demo";
+let demo = null, PERGUNTAS = [];
+
+async function modoDemo() {
+  if (demo === null) {
+    try { demo = location.protocol === "file:" || !(await fetch("/api/perguntas")).ok; } catch { demo = true; }
+  }
+  return demo;
+}
+const locais = () => { try { return JSON.parse(localStorage.getItem(DEMO_KEY)) || []; } catch { return []; } };
+
+function demoResultados() {
+  const D = window.DADOS_PESQUISA, todos = [...D.participantes, ...locais()], por_tipo = {};
+  todos.forEach(p => por_tipo[p.tipo_organizacao] = (por_tipo[p.tipo_organizacao] || 0) + 1);
+  const perguntas = D.perguntas.map(p => {
+    const vals = todos.map(t => t.respostas[p.id]).filter(v => v !== undefined && v !== null && v !== "");
+    const it = { ordem: p.ordem, texto: p.texto, tipo: p.tipo };
+    if (p.tipo === "escala") {
+      const dist = {1:0,2:0,3:0,4:0,5:0}; vals.forEach(v => dist[v]++);
+      Object.assign(it, { n: vals.length, distribuicao: dist, media: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100 : null });
+    } else if (p.tipo === "aberta") it.textos = vals.slice().reverse();
+    else { const ids = vals.flat(); it.opcoes = p.opcoes.map(o => ({ texto: o.texto, n: ids.filter(i => i === o.id).length })); }
+    return it;
+  });
+  return { total: todos.length, por_tipo, perguntas };
+}
+
+function demoCsv() {
+  const D = window.DADOS_PESQUISA, q = s => `"${String(s).replace(/"/g, '""')}"`, linhas = ["participante,tipo_organizacao,pergunta,resposta"];
+  [...D.participantes, ...locais()].forEach((t, i) => D.perguntas.forEach(p => {
+    const v = t.respostas[p.id]; if (v === undefined || v === null || v === "") return;
+    const txt = p.tipo === "escala" || p.tipo === "aberta" ? v : [].concat(v).map(id => p.opcoes.find(o => o.id === id)?.texto).join("; ");
+    linhas.push([i + 1, q(t.tipo_organizacao), p.ordem, q(/^[=+\-@]/.test(String(txt)) ? "'" + txt : txt)].join(","));
+  }));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + linhas.join("\n")], { type: "text/csv;charset=utf-8" }));
+  a.download = "respostas_outgpt_demo.csv"; a.click(); URL.revokeObjectURL(a.href);
+}
+
+async function api(url, opts) {
+  if (await modoDemo()) {
+    const D = window.DADOS_PESQUISA; if (!D) throw new Error("sem dados");
+    if (url === "/api/perguntas") return { ok: true, dados: D.perguntas };
+    if (url === "/api/resultados") return { ok: true, dados: demoResultados() };
+    if (url === "/api/enviar") {
+      const d = JSON.parse(opts.body), e = d.especialista || {};
+      if (!e.nome?.trim() || !e.cargo?.trim() || !e.organizacao?.trim() || !e.tipo_organizacao) return { ok: false, dados: { mensagem: "Preencha nome, cargo, organização e tipo de organização." } };
+      if (!e.consentimento) return { ok: false, dados: { mensagem: "É necessário concordar com o uso dos dados." } };
+      const l = locais(); l.push({ tipo_organizacao: e.tipo_organizacao, respostas: d.respostas });   // sem dados pessoais
+      try { localStorage.setItem(DEMO_KEY, JSON.stringify(l)); } catch { return { ok: false, dados: { mensagem: "Não foi possível salvar neste navegador." } }; }
+      return { ok: true, dados: { mensagem: "Resposta registrada (modo demonstração, salva apenas neste navegador)." } };
+    }
+    throw new Error("rota");
+  }
+  const r = await fetch(url, opts);
+  return { ok: r.ok, status: r.status, dados: await r.json() };
+}
+
+function desenhar(p) {
+  let corpo;
+  if (p.tipo === "escala") corpo = `<div class="scale">${[1,2,3,4,5].map(n => `<label><input type="radio" name="q${p.id}" value="${n}" hidden>${n}</label>`).join("")}</div><div class="legend"><span>Baixa</span><span>Alta</span></div>`;
+  else if (p.tipo === "aberta") corpo = `<textarea name="q${p.id}" maxlength="2000" placeholder="Escreva aqui (opcional)"></textarea>`;
+  else corpo = p.opcoes.map(o => `<label class="opt"><input type="${p.tipo === "unica" ? "radio" : "checkbox"}" name="q${p.id}" value="${o.id}"><span>${esc(o.texto)}</span></label>`).join("");
+  return `<div class="card" data-q="${p.id}"><h2><span class="q-num">${p.ordem}</span>${esc(p.texto)}${p.obrigatoria ? " *" : ""}</h2>${corpo}</div>`;
+}
+
+async function iniciar() {
+  try {
+    const r = await api("/api/perguntas"); PERGUNTAS = r.dados;
+    $("#perguntas").innerHTML = PERGUNTAS.map(desenhar).join("");
+    if (await modoDemo()) $("#aviso").innerHTML = `<div class="msg demo">🧪 Modo demonstração: os dados são fictícios e novas respostas ficam salvas só neste navegador. Para usar o banco SQLite real, rode o servidor Python do repositório.</div>`;
+  } catch { $("#perguntas").innerHTML = `<div class="msg bad">Não foi possível carregar a pesquisa. Inicie o servidor (python server.py) ou use a versão publicada.</div>`; }
+}
+
+function coletar() {
+  const resp = {};
+  PERGUNTAS.forEach(p => {
+    const b = document.querySelector(`[data-q="${p.id}"]`), marc = [...b.querySelectorAll("input:checked")].map(i => +i.value);
+    resp[p.id] = p.tipo === "multipla" ? marc : p.tipo === "aberta" ? b.querySelector("textarea").value.trim() : (marc[0] ?? null);
+  });
+  return resp;
+}
+
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const ret = $("#retorno"); ret.innerHTML = "";
+  document.querySelectorAll(".card.err").forEach(c => c.classList.remove("err"));
+  const respostas = coletar();
+  const falta = PERGUNTAS.find(p => p.obrigatoria && (respostas[p.id] === null || respostas[p.id] === "" || (Array.isArray(respostas[p.id]) && !respostas[p.id].length)));
+  if (falta) {
+    const b = document.querySelector(`[data-q="${falta.id}"]`); b.classList.add("err"); b.scrollIntoView({ behavior: "smooth", block: "center" });
+    ret.innerHTML = `<div class="msg bad">Responda a pergunta ${falta.ordem}.</div>`; return;
+  }
+  const especialista = { nome: $("#nome").value, email: $("#email").value, cargo: $("#cargo").value, organizacao: $("#org").value,
+    tipo_organizacao: $("#tipo").value, anos_experiencia: $("#anos").value, consentimento: $("#consent").checked };
+  $("#enviar").disabled = true;
+  try {
+    const r = await api("/api/enviar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ especialista, respostas }) });
+    ret.innerHTML = `<div class="msg ${r.ok ? "ok" : "bad"}">${esc(r.dados.mensagem || "Erro ao enviar.")}</div>`;
+    if (r.ok) { $("#form").reset(); scrollTo({ top: 0, behavior: "smooth" }); }
+  } catch { ret.innerHTML = `<div class="msg bad">Falha de conexão com o servidor.</div>`; }
+  $("#enviar").disabled = false;
+});
+
+const barra = (rot, n, max) => `<div class="bar"><span>${esc(rot)}</span><div class="track"><i style="width:${max ? n / max * 100 : 0}%"></i></div><b>${n}</b></div>`;
+async function carregarResultados() {
+  $("#out").innerHTML = ""; $("#resumo").textContent = "Carregando...";
+  let r;
+  try { r = await api("/api/resultados"); } catch { $("#resumo").textContent = ""; $("#out").innerHTML = `<div class="msg bad">Não foi possível carregar os resultados.</div>`; return; }
+  if (r.status === 401 || r.status === 403) {
+    $("#resumo").textContent = "";
+    $("#out").innerHTML = `<div class="card"><h2>Resultados restritos</h2><p class="small">Os resultados completos (e a exportação CSV, que contém dados pessoais) ficam disponíveis apenas ao administrador master. Entre no OutGPT com a conta master e volte a esta página.</p><a class="btn" href="./">Ir para o login</a></div>`;
+    return;
+  }
+  const d = r.dados;
+  $("#resumo").textContent = `${d.total} especialista(s)` + (Object.keys(d.por_tipo).length ? " • " + Object.entries(d.por_tipo).map(([k, v]) => `${k}: ${v}`).join(" • ") : "");
+  $("#out").innerHTML = d.perguntas.map(p => {
+    let c;
+    if (p.tipo === "escala") { const max = Math.max(...Object.values(p.distribuicao), 0); c = `<div class="media">${p.media ?? "—"} <small>média (${p.n} resp.)</small></div>` + Object.entries(p.distribuicao).map(([k, v]) => barra("Nota " + k, v, max)).join(""); }
+    else if (p.tipo === "aberta") c = p.textos.length ? p.textos.map(t => `<blockquote>${esc(t)}</blockquote>`).join("") : `<span class="small">Sem comentários.</span>`;
+    else { const max = Math.max(...p.opcoes.map(o => o.n), 0); c = p.opcoes.map(o => barra(o.texto, o.n, max)).join(""); }
+    return `<div class="card"><h2><span class="q-num">${p.ordem}</span>${esc(p.texto)}</h2>${c}</div>`;
+  }).join("");
+}
+
+function aba(qual) {
+  $("#t-resp").classList.toggle("on", qual === "resp"); $("#t-res").classList.toggle("on", qual === "res");
+  $("#v-resp").classList.toggle("hidden", qual !== "resp"); $("#v-res").classList.toggle("hidden", qual !== "res");
+  if (qual === "res") carregarResultados();
+}
+$("#t-resp").onclick = () => aba("resp");
+$("#t-res").onclick = () => aba("res");
+$("#csv").onclick = async e => { if (await modoDemo()) { e.preventDefault(); demoCsv(); } };
+iniciar();
+</script>
+</body>
+</html>

@@ -1,15 +1,17 @@
-"""Cria (ou recria) o banco outgpt.db com o esquema e os dados iniciais.
+"""Cria o banco outgpt.db (esquema v2: multiempresa + autenticação) e carrega as perguntas da pesquisa.
 
-Uso:  python init_db.py          # cria se não existir
-      python init_db.py --reset  # apaga e recria
+Uso:  python init_db.py          # cria ou atualiza o banco (preserva a pesquisa e dados já existentes da v2)
+      python init_db.py --reset  # apaga o arquivo e recria do zero
+
+Depois crie o dono do sistema:  python criar_master.py
 """
-import json
 import sqlite3
 import sys
-from pathlib import Path
 
-BASE = Path(__file__).parent
-DB = BASE / "outgpt.db"
+import db
+
+BASE = db.BASE
+VERSAO = 2
 
 PERGUNTAS = [
     (1, "Em uma escala de 1 a 5, qual a importância de reduzir o tempo de onboarding de novos integrantes com apoio de IA generativa?",
@@ -40,50 +42,35 @@ PERGUNTAS = [
      "aberta", []),
 ]
 
-DOCS = [
-    ("SOP_Abertura_de_Chamados.pdf", "PDF", "Indexado"),
-    ("FAQ_Suporte_Nivel1.txt", "TXT", "Indexado"),
-    ("Manual_VPN_Corporativa.pdf", "PDF", "Indexado"),
-    ("Politica_Reset_de_Senhas.pdf", "PDF", "Indexado"),
-    ("Tutorial_Escalonamento_N2.txt", "TXT", "Processando"),
-]
+
+# tabelas da versão 1 (demonstração) que foram substituídas pelo modelo multiempresa
+LEGADO = ["progresso", "historico_duvidas", "questoes", "modulos", "trilhas", "chunks", "documentos", "sops", "usuarios"]
 
 
 def main():
-    if "--reset" in sys.argv and DB.exists():
-        DB.unlink()
-    novo = not DB.exists()
-    con = sqlite3.connect(DB)
+    if "--reset" in sys.argv and db.DB.exists():
+        db.DB.unlink()
+    con = sqlite3.connect(db.DB)
+    con.execute("PRAGMA foreign_keys = OFF")
+    if con.execute("PRAGMA user_version").fetchone()[0] < VERSAO:
+        existe = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='usuarios'").fetchone()
+        if existe:   # banco da v1: só havia dados de demonstração nessas tabelas; a pesquisa é preservada
+            for t in LEGADO:
+                con.execute(f"DROP TABLE IF EXISTS {t}")
+            print("Banco da versão anterior atualizado (tabelas de demonstração substituídas; pesquisa preservada).")
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript((BASE / "schema.sql").read_text(encoding="utf-8"))
+    con.execute(f"PRAGMA user_version = {VERSAO}")
 
-    if novo or not con.execute("SELECT 1 FROM perguntas LIMIT 1").fetchone():
+    if not con.execute("SELECT 1 FROM perguntas LIMIT 1").fetchone():
         for ordem, texto, tipo, opcoes in PERGUNTAS:
             pid = con.execute("INSERT INTO perguntas (ordem, texto, tipo, obrigatoria) VALUES (?,?,?,?)",
                               (ordem, texto, tipo, 0 if tipo == "aberta" else 1)).lastrowid
             con.executemany("INSERT INTO opcoes (pergunta_id, ordem, texto) VALUES (?,?,?)",
                             [(pid, i + 1, o) for i, o in enumerate(opcoes)])
-
-    if not con.execute("SELECT 1 FROM usuarios LIMIT 1").fetchone():
-        con.executemany("INSERT INTO usuarios (nome, email, perfil) VALUES (?,?,?)", [
-            ("Novo Colaborador", "novo.colaborador@empresa.com", "colaborador"),
-            ("Gestor Demo", "gestor@empresa.com", "gestor"),
-        ])
-        con.executemany("INSERT INTO documentos (nome_arquivo, tipo, status, enviado_por) VALUES (?,?,?,2)", DOCS)
-        con.execute("INSERT INTO trilhas (titulo, nivel) VALUES ('Fundamentos do Suporte Técnico','Iniciante')")
-        con.execute("INSERT INTO modulos (trilha_id, ordem, titulo, conteudo, documento_id, fonte) VALUES "
-                    "(1,1,'Como abrir e classificar um chamado',"
-                    "'Todo chamado deve ter título objetivo, descrição, impacto e prioridade. Prioridade Alta tem SLA de 30 minutos.',"
-                    "1,'SOP_Abertura_de_Chamados.pdf, p. 3')")
-        con.execute("INSERT INTO questoes (trilha_id, enunciado, alternativas, indice_correto, explicacao) VALUES (1,?,?,1,?)",
-                    ("Qual o SLA de primeira resposta para prioridade Alta?",
-                     json.dumps(["10 minutos", "30 minutos", "2 horas", "1 dia"], ensure_ascii=False),
-                     "Conforme o SOP de abertura de chamados."))
-        con.execute("INSERT INTO progresso (usuario_id, trilha_id, percentual) VALUES (1,1,60)")
-
     con.commit()
     tabelas = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")]
-    print(f"Banco pronto: {DB}\nTabelas: {', '.join(tabelas)}")
+    print(f"Banco pronto: {db.DB}\nTabelas: {', '.join(tabelas)}")
     con.close()
 
 

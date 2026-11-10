@@ -1,27 +1,29 @@
-﻿"""Dataset de SOPs: carga no SQLite + indexação no ChromaDB + busca semântica (RAG) + anonimização de PII.
+﻿"""RAG multiempresa: conteúdos no SQLite + vetores no ChromaDB + anonimização de PII.
 
-Uso:  python rag.py                       # lê data/sops_corporativos.csv
-      python rag.py caminho/do/arquivo.csv
-Colunas esperadas: id, categoria, procedimento_titulo, contexto_documental,
-                   pergunta_utilizador, resposta_esperada, contem_pii
+Cada conteúdo gera dois vetores (o texto do procedimento e a pergunta de exemplo). Todo vetor leva
+`empresa_id` e `visibilidade` nos metadados, e a busca SEMPRE filtra por empresa e visibilidade.
+
+Uso (linha de comando):
+  python rag.py reindexar                                   # recria todo o índice a partir do SQLite
+  python rag.py importar "Empresa Demo" data/sops_corporativos.csv [todos|internos]
+CSV: id, categoria, procedimento_titulo, contexto_documental, pergunta_utilizador, resposta_esperada, contem_pii
 """
 import csv
 import os
 import re
-import sqlite3
 import sys
 from pathlib import Path
 
+import db
+
 BASE = Path(__file__).parent
-DB = BASE / "outgpt.db"
 CSV_PADRAO = BASE / "data" / "sops_corporativos.csv"
-CHROMA_DIR = BASE / "data" / "chroma_db"
-COLECAO = "sops_corporativos"
-COLUNAS = ["id", "categoria", "procedimento_titulo", "contexto_documental",
-           "pergunta_utilizador", "resposta_esperada", "contem_pii"]
+CHROMA_DIR = Path(os.environ.get("OUTGPT_CHROMA") or BASE / "data" / "chroma_db")
+COLECAO = "conteudos"
+MODELO = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"   # multilíngue (o padrão do Chroma é só inglês)
+COLUNAS_CSV = ["id", "categoria", "procedimento_titulo", "contexto_documental", "pergunta_utilizador", "resposta_esperada", "contem_pii"]
 
 _colecao = None
-MODELO = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"   # multilíngue (o padrão do Chroma é só inglês)
 _modelo = None
 
 
@@ -53,37 +55,6 @@ def _embedder():
     return FastEmbedMultilingue()
 
 
-def _bool(v):
-    return 1 if str(v).strip().lower() in ("1", "true", "sim", "s", "yes", "y", "verdadeiro") else 0
-
-
-def ler_csv(caminho):
-    with open(caminho, encoding="utf-8-sig", newline="") as f:
-        leitor = csv.DictReader(f)
-        faltando = [c for c in COLUNAS if c not in (leitor.fieldnames or [])]
-        if faltando:
-            raise SystemExit(f"CSV sem as colunas: {', '.join(faltando)}. Encontradas: {leitor.fieldnames}")
-        linhas = []
-        for r in leitor:
-            linhas.append(tuple((r[c] or "").strip() for c in COLUNAS))
-    ids = [l[0] for l in linhas]
-    if len(set(ids)) != len(ids):
-        raise SystemExit("CSV com ids duplicados.")
-    return linhas
-
-
-def carregar_sqlite(linhas):
-    con = sqlite3.connect(DB)
-    con.executescript((BASE / "schema.sql").read_text(encoding="utf-8"))
-    with con:
-        con.execute("DELETE FROM sops")
-        con.executemany(
-            "INSERT INTO sops (id,categoria,procedimento_titulo,contexto_documental,pergunta_utilizador,resposta_esperada,contem_pii) "
-            "VALUES (?,?,?,?,?,?,?)",
-            [(*l[:6], _bool(l[6])) for l in linhas])
-    con.close()
-
-
 def colecao():
     global _colecao
     if _colecao is None:
@@ -93,8 +64,25 @@ def colecao():
     return _colecao
 
 
-def indexar(linhas):
-    """Recria a coleção no ChromaDB (vetores de conteúdo e de pergunta-exemplo de cada SOP)."""
+# ---------- Índice ----------
+def _vetores(c):
+    """Linhas (ids, documentos, metadados) de um conteúdo (sqlite3.Row ou dict)."""
+    meta = {"conteudo_id": int(c["id"]), "empresa_id": int(c["empresa_id"]), "visibilidade": c["visibilidade"]}
+    return ([f"c{c['id']}#conteudo", f"c{c['id']}#pergunta"],
+            [f"{c['titulo']}. {c['texto']}", c["pergunta_exemplo"] or c["titulo"]],
+            [{**meta, "parte": "conteudo"}, {**meta, "parte": "pergunta"}])
+
+
+def indexar_conteudo(c):
+    ids, docs, metas = _vetores(c)
+    colecao().upsert(ids=ids, documents=docs, metadatas=metas)
+
+
+def remover_conteudo(conteudo_id):
+    colecao().delete(ids=[f"c{conteudo_id}#conteudo", f"c{conteudo_id}#pergunta"])
+
+
+def reindexar_tudo():
     global _colecao
     import chromadb
     cli = chromadb.PersistentClient(path=str(CHROMA_DIR))
@@ -102,16 +90,58 @@ def indexar(linhas):
         cli.delete_collection(COLECAO)
     except Exception:
         pass
-    _colecao = cli.create_collection(COLECAO, embedding_function=_embedder(), metadata={"hnsw:space": "cosine"})
-    # Dois vetores por SOP (o modelo trunca textos longos): a pergunta de exemplo e o conteúdo do procedimento.
+    _colecao = None
+    col = colecao()
     ids, docs, metas = [], [], []
+    with db.conectar() as con:
+        for c in con.execute("SELECT * FROM conteudos"):
+            i, d, m = _vetores(c)
+            ids += i; docs += d; metas += m
+    for k in range(0, len(ids), 100):
+        col.add(ids=ids[k:k + 100], documents=docs[k:k + 100], metadatas=metas[k:k + 100])
+    return len(ids) // 2
+
+
+# ---------- Importação de CSV ----------
+def _bool(v):
+    return 1 if str(v).strip().lower() in ("1", "true", "sim", "s", "yes", "y", "verdadeiro") else 0
+
+
+def linhas_do_csv(texto):
+    """Interpreta o texto de um CSV. Levanta ValueError com mensagem amigável se estiver fora do formato."""
+    leitor = csv.DictReader(texto.lstrip("﻿").splitlines())
+    faltando = [c for c in COLUNAS_CSV if c not in (leitor.fieldnames or [])]
+    if faltando:
+        raise ValueError("CSV sem as colunas: " + ", ".join(faltando))
+    linhas = [{k: (r.get(k) or "").strip() for k in COLUNAS_CSV} for r in leitor]
+    codigos = [l["id"] for l in linhas]
+    if not linhas:
+        raise ValueError("CSV vazio.")
+    if any(not l["id"] or not l["procedimento_titulo"] or not l["contexto_documental"] for l in linhas):
+        raise ValueError("Há linhas sem id, título ou conteúdo.")
+    if len(set(codigos)) != len(codigos):
+        raise ValueError("CSV com ids duplicados.")
+    return linhas
+
+
+def importar_csv(con, empresa_id, texto, visibilidade="internos", criado_por=None):
+    """Insere/atualiza os conteúdos de uma empresa a partir do CSV e reindexa. Devolve a quantidade."""
+    if visibilidade not in ("todos", "internos"):
+        raise ValueError("Visibilidade inválida.")
+    linhas = linhas_do_csv(texto)
     for l in linhas:
-        meta = {"sop_id": l[0], "categoria": l[1], "titulo": l[2]}
-        ids += [f"{l[0]}#conteudo", f"{l[0]}#pergunta"]
-        docs += [f"{l[2]}. {l[3]}", l[4] or l[2]]
-        metas += [{**meta, "parte": "conteudo"}, {**meta, "parte": "pergunta"}]
-    for i in range(0, len(ids), 100):
-        _colecao.add(ids=ids[i:i + 100], documents=docs[i:i + 100], metadatas=metas[i:i + 100])
+        con.execute(
+            "INSERT INTO conteudos (empresa_id,codigo,titulo,categoria,texto,pergunta_exemplo,contem_pii,visibilidade,criado_por) "
+            "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(empresa_id,codigo) DO UPDATE SET titulo=excluded.titulo, "
+            "categoria=excluded.categoria, texto=excluded.texto, pergunta_exemplo=excluded.pergunta_exemplo, "
+            "contem_pii=excluded.contem_pii, atualizado_em=datetime('now','localtime')",
+            (empresa_id, l["id"], l["procedimento_titulo"], l["categoria"] or "Geral", l["contexto_documental"],
+             l["pergunta_utilizador"], _bool(l["contem_pii"]), visibilidade, criado_por))
+    con.commit()
+    for c in con.execute("SELECT * FROM conteudos WHERE empresa_id=? AND codigo IN (%s)" % ",".join("?" * len(linhas)),
+                         [empresa_id] + [l["id"] for l in linhas]):
+        indexar_conteudo(c)
+    return len(linhas)
 
 
 # ---------- Anonimização (LGPD) ----------
@@ -134,35 +164,43 @@ def anonimizar(texto):
 
 
 # ---------- Consulta ----------
-def buscar(pergunta, k=3):
+def buscar(pergunta, empresa_id, visibilidades, k=3):
+    """Top-k conteúdos da empresa (e visibilidades permitidas) mais parecidos com a pergunta."""
     col = colecao()
     if col.count() == 0:
         return []
-    r = col.query(query_texts=[pergunta], n_results=min(k * 2 + 2, col.count()))
-    melhor = {}   # sop_id -> menor distância entre seus vetores
+    filtro = {"$and": [{"empresa_id": {"$eq": int(empresa_id)}}, {"visibilidade": {"$in": list(visibilidades)}}]}
+    r = col.query(query_texts=[pergunta], n_results=k * 2 + 2, where=filtro)
+    melhor = {}   # conteudo_id -> menor distância entre seus vetores
     for meta, dist in zip(r["metadatas"][0], r["distances"][0]):
-        melhor[meta["sop_id"]] = min(dist, melhor.get(meta["sop_id"], 9))
-    con = sqlite3.connect(DB)
-    con.row_factory = sqlite3.Row
+        cid = meta["conteudo_id"]
+        melhor[cid] = min(dist, melhor.get(cid, 9))
     out = []
-    for sop_id, dist in sorted(melhor.items(), key=lambda x: x[1])[:k]:
-        row = con.execute("SELECT * FROM sops WHERE id=?", (sop_id,)).fetchone()
-        if row:
-            out.append({**dict(row), "similaridade": round(1 - dist, 3)})
-    con.close()
+    with db.conectar() as con:
+        for cid, dist in sorted(melhor.items(), key=lambda x: x[1])[:k]:
+            row = con.execute("SELECT * FROM conteudos WHERE id=? AND empresa_id=?", (cid, empresa_id)).fetchone()
+            if row and row["visibilidade"] in visibilidades:
+                out.append({**dict(row), "similaridade": round(1 - dist, 3)})
     return out
 
 
-def main():
-    caminho = Path(sys.argv[1]) if len(sys.argv) > 1 else CSV_PADRAO
-    if not caminho.exists():
-        raise SystemExit(f"Arquivo não encontrado: {caminho}\nColoque o CSV em backend/data/sops_corporativos.csv ou passe o caminho.")
-    linhas = ler_csv(caminho)
-    carregar_sqlite(linhas)
-    indexar(linhas)
-    print(f"{len(linhas)} SOPs carregadas no SQLite e indexadas no ChromaDB ({CHROMA_DIR}).")
+def _cli():
+    if len(sys.argv) >= 2 and sys.argv[1] == "reindexar":
+        print(f"{reindexar_tudo()} conteúdos indexados.")
+    elif len(sys.argv) >= 4 and sys.argv[1] == "importar":
+        nome, caminho = sys.argv[2], Path(sys.argv[3])
+        vis = sys.argv[4] if len(sys.argv) > 4 else "internos"
+        with db.conectar() as con:
+            emp = con.execute("SELECT id FROM empresas WHERE nome=?", (nome,)).fetchone()
+            if not emp:
+                con.execute("INSERT INTO empresas (nome) VALUES (?)", (nome,))
+                con.commit()
+                emp = con.execute("SELECT id FROM empresas WHERE nome=?", (nome,)).fetchone()
+            n = importar_csv(con, emp["id"], caminho.read_text(encoding="utf-8-sig"), vis)
+        print(f"{n} conteúdos importados para '{nome}' (visibilidade: {vis}) e indexados.")
+    else:
+        raise SystemExit(__doc__)
 
 
 if __name__ == "__main__":
-    main()
-
+    _cli()
