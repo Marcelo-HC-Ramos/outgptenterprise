@@ -7,6 +7,7 @@ Toda rota (exceto login, pesquisa pública e arquivos estáticos) exige sessão 
 """
 import base64
 import binascii
+import hmac
 import json
 import os
 import re
@@ -81,6 +82,9 @@ def rota(metodo, caminho, acesso="auth", limite=MAX_CORPO):
     return deco
 
 
+CONFIAR_PROXY = os.environ.get("OUTGPT_CONFIAR_PROXY") == "1"   # atrás de um proxy/balanceador confiável (Render, Fly, nginx...)
+
+
 class Ctx:
     def __init__(self, con, usuario, corpo, args, query, ip):
         self.con, self.usuario, self.corpo, self.args, self.query, self.ip = con, usuario, corpo, args, query, ip
@@ -124,6 +128,45 @@ def cookie_sessao(token, max_age):
     seguro = "; Secure" if os.environ.get("OUTGPT_COOKIE_SECURE") == "1" else ""
     return f"{COOKIE}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}{seguro}"
 
+
+# ----- publicação: saúde do serviço e primeiro acesso -----
+@rota("GET", "/saude", None)
+def h_saude(c):
+    c.con.execute("SELECT 1")
+    return Binario(b"ok", "text/plain; charset=utf-8")
+
+
+def _precisa_configurar(con):
+    return bool(os.environ.get("OUTGPT_SETUP_TOKEN")) and not con.execute("SELECT 1 FROM usuarios WHERE tipo='master'").fetchone()
+
+
+@rota("GET", "/api/status", None)
+def h_status(c):
+    return {"precisa_configurar": _precisa_configurar(c.con)}
+
+
+@rota("POST", "/api/configuracao-inicial", None)
+def h_configuracao_inicial(c):
+    """Cria o primeiro usuário master num servidor novo. Só funciona enquanto não existe master e com o token secreto
+    definido por quem hospeda (variável OUTGPT_SETUP_TOKEN). Depois do primeiro master, a rota deixa de funcionar."""
+    limitar("setup:" + c.ip, 5, 600)
+    if not _precisa_configurar(c.con):
+        raise Erro(403, "A configuração inicial não está disponível.")
+    if not hmac.compare_digest(str(c.corpo.get("token") or "").encode(), os.environ["OUTGPT_SETUP_TOKEN"].encode()):
+        raise Erro(403, "Token de configuração incorreto.")
+    nome = texto(c.corpo.get("nome"), "nome", 120)
+    email = texto(c.corpo.get("email"), "e-mail", 160).lower()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        raise Erro(400, "E-mail inválido.")
+    erro = auth.validar_senha_nova(c.corpo.get("senha"))
+    if erro:
+        raise Erro(400, erro)
+    try:
+        c.con.execute("INSERT INTO usuarios (empresa_id, nome, email, senha_hash, tipo) VALUES (NULL,?,?,?, 'master')", (nome, email, auth.hash_senha(c.corpo["senha"])))
+    except sqlite3.IntegrityError:
+        raise Erro(409, "Já existe um usuário com esse e-mail.")
+    c.con.commit()
+    return {"ok": True}
 
 # ----- autenticação -----
 @rota("POST", "/api/login", None)
@@ -834,6 +877,7 @@ def h_llm_chave(c):
 # ---------- HTTP ----------
 class Handler(BaseHTTPRequestHandler):
     server_version = "OutGPT"
+    timeout = 60                 # fecha conexões lentas/paradas (protege contra clientes que seguram a conexão aberta)
     sys_version = ""
 
     def _enviar(self, codigo, corpo, ctype, extra=None, csp=None):
@@ -844,6 +888,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Cache-Control", "no-store")
+        if os.environ.get("OUTGPT_COOKIE_SECURE") == "1":
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
         if csp:
             self.send_header("Content-Security-Policy", csp)
         for k, v in (extra or {}).items():
@@ -872,6 +918,14 @@ class Handler(BaseHTTPRequestHandler):
                 enviar("erro", {"mensagem": "Erro interno do servidor."})
             except OSError:
                 pass
+    def _ip(self):
+        """IP do cliente. Atrás de um proxy confiável vale o último valor de X-Forwarded-For (o que o proxy anexou)."""
+        if CONFIAR_PROXY:
+            xff = self.headers.get("X-Forwarded-For", "")
+            if xff:
+                return xff.split(",")[-1].strip()[:64]
+        return self.client_address[0]
+
     def _json(self, codigo, obj, extra=None):
         self._enviar(codigo, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", extra)
 
@@ -922,7 +976,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(401, {"ok": False, "mensagem": "Faça login para continuar."})
             if isinstance(acesso, tuple) and usuario["tipo"] not in acesso:
                 return self._json(403, {"ok": False, "mensagem": "Sem permissão para esta ação."})
-            res = fn(Ctx(con, usuario, corpo, args, query, self.client_address[0]))
+            res = fn(Ctx(con, usuario, corpo, args, query, self._ip()))
             extra = None
             if isinstance(res, tuple):
                 res, extra = res
@@ -967,6 +1021,11 @@ if __name__ == "__main__":
             print("Aviso: não há usuário master. Crie o seu com: python criar_master.py")
     print("LLM:", f"ativa ({llm.MODELO})" if llm.disponivel() else "desativada (defina ANTHROPIC_API_KEY em backend/.env para ativar)")
     threading.Thread(target=_aquecer, daemon=True).start()
-    porta = int(os.environ.get("OUTGPT_PORTA", "8000"))
+    porta = int(os.environ.get("OUTGPT_PORTA") or os.environ.get("PORT") or 8000)
+    host = os.environ.get("OUTGPT_HOST", "127.0.0.1")            # em servidor: 0.0.0.0 (a imagem Docker já define)
+    if host not in ("127.0.0.1", "localhost") and os.environ.get("OUTGPT_COOKIE_SECURE") != "1":
+        print("AVISO: servidor exposto na rede sem OUTGPT_COOKIE_SECURE=1. Em produção use HTTPS e defina OUTGPT_COOKIE_SECURE=1.")
+    if _precisa_configurar(db.conectar()):
+        print("Primeiro acesso: abra o site e crie o master com o token de OUTGPT_SETUP_TOKEN.")
     print(f"OutGPT Enterprise:  http://localhost:{porta}\n(Ctrl+C para parar)")
-    ThreadingHTTPServer(("127.0.0.1", porta), Handler).serve_forever()
+    ThreadingHTTPServer((host, porta), Handler).serve_forever()

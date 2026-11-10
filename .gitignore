@@ -6,3 +6,4 @@ backend/.env
 backend/data/chroma_db/
 .venv/
 .vscode/
+backend/backups/

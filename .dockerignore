@@ -1,0 +1,12 @@
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+backend/outgpt.db
+backend/outgpt.db-journal
+backend/.env
+backend/backups
+backend/data/chroma_db
+outgpt-frontend
+outgpt-pesquisa
+*.md

@@ -7,8 +7,9 @@ Projeto de Processamento de Linguagem Natural - Fatec Cotia, Ciência de Dados.
 
 ## O que a plataforma faz
 - Cada **empresa** cadastra seus conteúdos (procedimentos, manuais, FAQs; digitados, em CSV ou enviados como TXT/MD/PDF/DOCX) e seus usuários.
-- **Cursos automáticos:** cada categoria de conteúdo vira um curso, com lições, perguntas de verificação e progresso por usuário.
-- **Assistente com IA (Claude):** responde dúvidas só com base nos conteúdos da empresa, em linguagem clara (resposta direta, passos numerados, prazos em destaque) e cita a fonte. Lembra da conversa para perguntas de continuação. Se não há base, recusa em vez de inventar.
+- **Cursos:** cada categoria de conteúdo vira um curso automático (lições, perguntas de verificação e progresso por usuário); o admin também monta **cursos personalizados** escolhendo e ordenando lições, e pode gerar as perguntas de verificação com a IA. Ao concluir um curso, o usuário emite um **certificado** imprimível, com código verificável em `/verificar.html`.
+- **Assistente com IA (Claude):** responde dúvidas só com base nos conteúdos da empresa, em linguagem clara (resposta direta, passos numerados, prazos em destaque) e cita a fonte. A resposta aparece em tempo real (streaming), o assistente lembra da conversa e, se não há base, recusa em vez de inventar. Cada resposta pode ser avaliada com 👍/👎.
+- **Qualidade (admin):** a tela *Lacunas e feedback* mostra as perguntas que o assistente não soube responder (as mais repetidas primeiro, com atalho para criar o conteúdo) e as respostas que não ajudaram.
 - **RAG híbrido:** os textos são divididos em trechos e buscados por significado (vetores, ChromaDB) e por palavras-chave (BM25, SQLite FTS5).
 - **Privacidade:** e-mail, CPF, CNPJ e telefone são mascarados antes de qualquer consulta; os dados de cada empresa são isolados.
 
@@ -35,6 +36,9 @@ Sem a chave tudo funciona, mas o assistente devolve o trecho encontrado em vez d
 Para começar a usar: **Empresas** (criar) > **Biblioteca** (importar o CSV `backend/data/sops_corporativos.csv`, enviar arquivos ou cadastrar conteúdos) > **Usuários** (criar o admin, funcionários e colaboradores).
 No primeiro uso, o índice de busca é criado sozinho (na primeira vez baixa o modelo de embeddings, ~220 MB).
 
+## Publicar na internet
+Veja **[DEPLOY.md](DEPLOY.md)**: Dockerfile, `render.yaml` e `fly.toml` prontos, tela de "Primeiro acesso" por token, HTTPS, backup (`python backup.py`) e cuidados de privacidade. O modo servidor foi testado localmente; o build Docker e a publicação em si ainda precisam ser executados na hospedagem escolhida.
+
 ## Pesquisa com especialistas
 Arquivo separado e autônomo: `docs/pesquisa.html` (`http://localhost:8000/pesquisa.html`), com as abas **Responder** (pública) e **Resultados** (somente master, com exportação CSV).
 
@@ -49,7 +53,7 @@ backend/   Servidor Python, banco SQLite, RAG, cursos e integração com a LLM
 ```
 
 ## Banco de dados (SQLite, `backend/outgpt.db`)
-`empresas`, `usuarios`, `sessoes`, `conteudos`, `trechos_fts`, `cursos`, `curso_itens`, `progresso_licoes`, `historico_duvidas`,
+`empresas`, `usuarios`, `sessoes`, `conteudos`, `trechos_fts`, `cursos`, `curso_itens`, `progresso_licoes`, `quiz_gerados`, `certificados`, `historico_duvidas`,
 `especialistas`, `perguntas`, `opcoes`, `respostas`. Esquema em `backend/schema.sql`.
 Senhas com scrypt; sessões por cookie HttpOnly; login bloqueado por 15 min após 5 falhas.
 
@@ -65,6 +69,7 @@ OUTGPT_ESFORCO=low                # low | medium | high
 python rag.py importar "Nome da Empresa" data/sops_corporativos.csv internos   # importa CSV pela linha de comando
 python rag.py reindexar                                                         # refaz o índice de busca
 python export_static.py                                                         # atualiza os dados do site publicado
+python backup.py                                                                # cópia de segurança do banco (backend/backups)
 ```
 
 ## Desenvolvimento

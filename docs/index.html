@@ -18,7 +18,17 @@
       <button class="btn primary" id="login-btn">Entrar</button>
       <small class="muted center">Acesso restrito a usuários cadastrados pela sua empresa.</small>
     </form>
-  </section>
+    <form class="login-card hidden" id="setup-form">
+      <div class="brand center"><span class="brand-mark">O</span><span class="logo">Out<span>GPT</span></span></div>
+      <h2 class="center">Primeiro acesso</h2>
+      <p class="muted center">Crie o usuário <strong>master</strong> (dono do sistema). O token é o valor de <code>OUTGPT_SETUP_TOKEN</code> definido por quem instalou o servidor.</p>
+      <label class="field">Token de configuração<input type="password" id="st-token" autocomplete="off" required></label>
+      <label class="field">Seu nome<input id="st-nome" maxlength="120" required></label>
+      <label class="field">E-mail (será o login)<input type="email" id="st-email" maxlength="160" required></label>
+      <label class="field">Senha (mín. 10 caracteres, com letras e números)<input type="password" id="st-senha" autocomplete="new-password" required></label>
+      <div id="setup-erro" class="alerta bad hidden" role="alert"></div>
+      <button class="btn primary" id="setup-btn">Criar master</button>
+    </form>  </section>
 
   <div id="app" class="app hidden">
     <aside class="sidebar">

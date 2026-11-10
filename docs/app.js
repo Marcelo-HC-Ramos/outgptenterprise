@@ -264,12 +264,31 @@ $("#trocar-senha").onclick = () => janela("Alterar senha", `
   <label class="field">Nova senha (mín. 10 caracteres, com letras e números)<input type="password" id="s-nova" autocomplete="new-password" required></label>`,
   { aoSalvar: async () => { await api("/api/senha", { method: "POST", body: { atual: $("#s-atual").value, nova: $("#s-nova").value } }); } });
 
+// Servidor novo (sem nenhum master): mostra a tela "Primeiro acesso" no lugar do login
+async function verificarPrimeiroAcesso() {
+  try {
+    const s = await (await fetch("/api/status")).json();
+    $("#setup-form").classList.toggle("hidden", !s.precisa_configurar);
+    $("#login-form").classList.toggle("hidden", !!s.precisa_configurar);
+  } catch { /* sem status: segue com o login normal */ }
+}
+$("#setup-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const btn = $("#setup-btn"), erro = $("#setup-erro"); btn.disabled = true; erro.classList.add("hidden");
+  try {
+    await api("/api/configuracao-inicial", { method: "POST", body: { token: $("#st-token").value, nome: $("#st-nome").value, email: $("#st-email").value, senha: $("#st-senha").value } });
+    $("#email").value = $("#st-email").value; $("#setup-form").reset();
+    $("#setup-form").classList.add("hidden"); $("#login-form").classList.remove("hidden");
+    mostrarLogin("Master criado! Entre com o seu e-mail e a senha.");
+  } catch (err) { erro.textContent = err.message; erro.classList.remove("hidden"); }
+  btn.disabled = false;
+});
 const carregarScript = src => new Promise((ok, falha) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = falha; document.head.appendChild(s); });
 async function iniciar() {
   let r = null;
   if (location.protocol !== "file:") { try { r = await fetch("/api/eu", { credentials: "same-origin" }); } catch { r = null; } }
   if (r && r.ok) return entrar(await r.json());                         // servidor + sessão ativa
-  if (r && r.status === 401) return mostrarLogin();                      // servidor, sem sessão
+  if (r && r.status === 401) { await verificarPrimeiroAcesso(); return mostrarLogin(); }   // servidor, sem sessão
   estado.demo = true;                                                    // sem servidor: demonstração
   try { await carregarScript("demo_conteudos.js"); } catch { /* sem conteúdo de exemplo */ }
   entrar({ nome: "Visitante", tipo: "funcionario", empresa: "Demonstração", llm: false });

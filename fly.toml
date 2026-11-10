@@ -1,0 +1,33 @@
+# Fly.io (https://fly.io): "fly launch --no-deploy" usa este arquivo; depois crie o volume e faça o deploy (veja DEPLOY.md).
+# Troque o nome do app por um nome único. Confira preços atuais; o servidor usa ~650 MB, então use pelo menos 1 GB.
+app = "outgpt-enterprise"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8000"
+
+[mounts]
+  source = "dados"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "90s"
+    interval = "30s"
+    method = "GET"
+    path = "/saude"
+    timeout = "5s"
+
+[[vm]]
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 1
