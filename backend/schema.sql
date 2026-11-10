@@ -78,6 +78,10 @@ CREATE TABLE IF NOT EXISTS historico_duvidas (
   modelo TEXT,
   tokens_entrada INTEGER,
   tokens_saida INTEGER,
+  encontrado INTEGER NOT NULL DEFAULT 1,  -- 0 = o assistente não achou base nos conteúdos (lacuna de conteúdo)
+  resolvida INTEGER NOT NULL DEFAULT 0,  -- lacuna já tratada pelo admin
+  avaliacao INTEGER,                    -- 1 = útil, -1 = não ajudou (feedback do usuário)
+  comentario TEXT,
   criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
 CREATE INDEX IF NOT EXISTS idx_historico_empresa ON historico_duvidas(empresa_id, criado_em);
@@ -109,6 +113,30 @@ CREATE TABLE IF NOT EXISTS progresso_licoes (
   concluida_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   acertou INTEGER,                      -- resultado da pergunta de verificação (NULL = não respondida)
   PRIMARY KEY (usuario_id, curso_id, conteudo_id)
+);
+-- Perguntas de verificação geradas pela IA para lições sem pergunta de exemplo
+CREATE TABLE IF NOT EXISTS quiz_gerados (
+  conteudo_id INTEGER PRIMARY KEY REFERENCES conteudos(id) ON DELETE CASCADE,
+  pergunta TEXT NOT NULL,
+  correta TEXT NOT NULL,
+  erradas TEXT NOT NULL,                -- JSON: ["a","b","c"]
+  modelo TEXT,
+  gerado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- Certificados de conclusão (guardam os dados da emissão, mesmo que o curso seja renomeado depois)
+CREATE TABLE IF NOT EXISTS certificados (
+  codigo TEXT PRIMARY KEY,
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  curso_id INTEGER REFERENCES cursos(id) ON DELETE SET NULL,
+  nome TEXT NOT NULL,
+  curso_titulo TEXT NOT NULL,
+  empresa_nome TEXT,
+  licoes INTEGER NOT NULL,
+  acertos INTEGER NOT NULL DEFAULT 0,
+  respondidas INTEGER NOT NULL DEFAULT 0,
+  emitido_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (usuario_id, curso_id)
 );
 -- ===== Pesquisa com especialistas =====
 CREATE TABLE IF NOT EXISTS especialistas (

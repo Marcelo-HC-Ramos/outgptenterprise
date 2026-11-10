@@ -11,7 +11,7 @@ import sys
 import db
 
 BASE = db.BASE
-VERSAO = 3
+VERSAO = 4
 
 PERGUNTAS = [
     (1, "Em uma escala de 1 a 5, qual a importância de reduzir o tempo de onboarding de novos integrantes com apoio de IA generativa?",
@@ -62,13 +62,19 @@ def migrar(con):
         for t in LEGADO_V1:
             con.execute(f"DROP TABLE IF EXISTS {t}")
         print("Banco da versão 1 atualizado (tabelas de demonstração substituídas; pesquisa preservada).")
-    elif existe:                  # v2 -> v3: mantém empresas, usuários, conteúdos e histórico
-        for t in LEGADO_V2:
-            con.execute(f"DROP TABLE IF EXISTS {t}")
-        for col in ("resposta_exemplo TEXT", "arquivo_nome TEXT"):
-            if col.split()[0] not in colunas(con, "conteudos"):
-                con.execute(f"ALTER TABLE conteudos ADD COLUMN {col}")
-        print("Banco da versão 2 atualizado para a v3 (cursos e arquivos).")
+    elif existe:                  # v2/v3 -> v4: mantém empresas, usuários, conteúdos e histórico
+        if versao < 3:
+            for t in LEGADO_V2:
+                con.execute(f"DROP TABLE IF EXISTS {t}")
+            for col in ("resposta_exemplo TEXT", "arquivo_nome TEXT"):
+                if col.split()[0] not in colunas(con, "conteudos"):
+                    con.execute(f"ALTER TABLE conteudos ADD COLUMN {col}")
+        for col in ("encontrado INTEGER NOT NULL DEFAULT 1", "resolvida INTEGER NOT NULL DEFAULT 0", "avaliacao INTEGER", "comentario TEXT"):
+            if col.split()[0] not in colunas(con, "historico_duvidas"):
+                con.execute(f"ALTER TABLE historico_duvidas ADD COLUMN {col}")
+        # perguntas sem fonte já registradas contam como lacunas de conteúdo
+        con.execute("UPDATE historico_duvidas SET encontrado = 0 WHERE (fontes IS NULL OR fontes = '[]') AND gerado_por_ia = 0")
+        print(f"Banco da versão {versao} atualizado para a v{VERSAO}.")
 
 
 def main():

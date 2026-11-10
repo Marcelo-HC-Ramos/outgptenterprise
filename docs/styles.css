@@ -245,3 +245,6 @@ code{background:var(--soft);padding:1px 6px;border-radius:6px}
 .alerta.ok{background:rgba(16,185,129,.14);color:var(--ok)}
 hr{border:0;border-top:1px solid var(--line);margin:18px 0}
 @media(max-width:900px){.grid-2{grid-template-columns:1fr}.aula-layout{grid-template-columns:1fr}.licoes{position:static;max-height:none}}
+/* Streaming: cursor piscando enquanto a IA escreve */
+.msg.digitando>:last-child::after{content:"▍";margin-left:2px;animation:piscar 1s steps(2) infinite}
+@keyframes piscar{50%{opacity:0}}

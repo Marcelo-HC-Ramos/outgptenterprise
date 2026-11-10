@@ -167,6 +167,12 @@ SEM_RESPOSTA = ("Não encontrei essa informação nos conteúdos disponíveis pa
 MARCADORES_PII = re.compile(r"\[(?:EMAIL|CPF|CNPJ|TELEFONE)\]")
 
 
+class Fluxo:
+    """Resposta em streaming (Server-Sent Events): `gerador` produz tuplas (evento, dados)."""
+    def __init__(self, gerador):
+        self.gerador = gerador
+
+
 def _resposta_de_busca(achados):
     top = achados[0]
     return f"Com base em «{top['titulo']}» ({top['codigo']}):\n\n" + "\n\n".join(top["trechos"])
@@ -181,8 +187,8 @@ def _historico_recebido(corpo):
     return out
 
 
-@rota("POST", "/api/chat")
-def h_chat(c):
+def _preparar_chat(c):
+    """Valida, anonimiza e recupera os trechos relevantes (comum à resposta completa e ao streaming)."""
     limitar(f"chat:{c.usuario['id']}", 20, 60)
     pergunta = texto(c.corpo.get("pergunta"), "pergunta", 1000)
     eid = empresa_alvo(c, c.corpo)
@@ -200,31 +206,94 @@ def h_chat(c):
     if achados:   # mantém só os trechos próximos do melhor (evita citar fontes pouco relevantes)
         topo = max(a["similaridade"] for a in achados)
         achados = [a for a in achados if a["similaridade"] >= topo - 0.15 or a["lexical"]]
-    base = {"pii_mascaradas": pii, "pergunta_anonimizada": limpa}
-    meta_llm = {"modelo": None, "tokens_entrada": None, "tokens_saida": None}
-    if not achados:
-        resp = {**base, "encontrado": False, "gerado_por_ia": False, "fontes": [],
-                "resposta": SEM_RESPOSTA}
-    else:
-        fontes = [{"conteudo_id": a["id"], "codigo": a["codigo"], "titulo": a["titulo"], "categoria": a["categoria"],
-                   "similaridade": a["similaridade"]} for a in achados]
-        try:
-            g = llm.gerar_resposta(limpa, achados, historico)
-            meta_llm = {k: g[k] for k in meta_llm}
-            if g["texto"].strip().upper().startswith("SEM_BASE"):      # a LLM concluiu que os documentos não respondem
-                resp = {**base, "encontrado": False, "gerado_por_ia": False, "fontes": [], "resposta": SEM_RESPOSTA}
-            else:
-                resp = {**base, "encontrado": True, "gerado_por_ia": True, "resposta": g["texto"], "fontes": fontes}
-        except llm.LLMIndisponivel as e:
-            resp = {**base, "encontrado": True, "gerado_por_ia": False, "resposta": _resposta_de_busca(achados),
-                    "fontes": fontes, "aviso": str(e)}
-    c.con.execute(
-        "INSERT INTO historico_duvidas (usuario_id,empresa_id,pergunta,resposta,fontes,gerado_por_ia,modelo,tokens_entrada,tokens_saida) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
-        (c.usuario["id"], eid, limpa, resp["resposta"], json.dumps([{"codigo": f["codigo"], "titulo": f["titulo"]} for f in resp["fontes"]], ensure_ascii=False),
-         int(resp["gerado_por_ia"]), meta_llm["modelo"], meta_llm["tokens_entrada"], meta_llm["tokens_saida"]))
+    return {"eid": eid, "historico": historico, "limpa": limpa, "achados": achados,
+            "base": {"pii_mascaradas": pii, "pergunta_anonimizada": limpa}}
+
+
+def _sem_base(p):
+    return {**p["base"], "encontrado": False, "gerado_por_ia": False, "fontes": [], "resposta": SEM_RESPOSTA}
+
+
+def _fontes(achados):
+    return [{"conteudo_id": a["id"], "codigo": a["codigo"], "titulo": a["titulo"], "categoria": a["categoria"],
+             "similaridade": a["similaridade"]} for a in achados]
+
+
+def _resposta_da_llm(p, g):
+    if g["texto"].strip().upper().startswith("SEM_BASE"):      # a LLM concluiu que os documentos não respondem
+        return _sem_base(p)
+    return {**p["base"], "encontrado": True, "gerado_por_ia": True, "resposta": g["texto"], "fontes": _fontes(p["achados"])}
+
+
+def _resposta_sem_llm(p, motivo):
+    return {**p["base"], "encontrado": True, "gerado_por_ia": False, "resposta": _resposta_de_busca(p["achados"]),
+            "fontes": _fontes(p["achados"]), "aviso": motivo}
+
+
+def _registrar_chat(c, p, resp, g=None):
+    """Grava a pergunta (já anonimizada) no histórico e devolve o id do registro."""
+    g = g or {}
+    cur = c.con.execute(
+        "INSERT INTO historico_duvidas (usuario_id,empresa_id,pergunta,resposta,fontes,gerado_por_ia,modelo,tokens_entrada,tokens_saida,encontrado) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (c.usuario["id"], p["eid"], p["limpa"], resp["resposta"],
+         json.dumps([{"codigo": f["codigo"], "titulo": f["titulo"]} for f in resp["fontes"]], ensure_ascii=False),
+         int(resp["gerado_por_ia"]), g.get("modelo"), g.get("tokens_entrada"), g.get("tokens_saida"), int(resp["encontrado"])))
     c.con.commit()
+    return cur.lastrowid
+
+
+@rota("POST", "/api/chat")
+def h_chat(c):
+    p = _preparar_chat(c)
+    g = None
+    if not p["achados"]:
+        resp = _sem_base(p)
+    else:
+        try:
+            g = llm.gerar_resposta(p["limpa"], p["achados"], p["historico"])
+            resp = _resposta_da_llm(p, g)
+        except llm.LLMIndisponivel as e:
+            resp = _resposta_sem_llm(p, str(e))
+    resp["id"] = _registrar_chat(c, p, resp, g)
     return resp
+
+
+@rota("POST", "/api/chat/stream")
+def h_chat_stream(c):
+    """Igual a /api/chat, mas devolve a resposta em eventos (SSE): 'delta' (texto) ... 'fim' (resposta completa)."""
+    p = _preparar_chat(c)           # erros de validação saem como JSON normal, antes de abrir o fluxo
+
+    def gerar():
+        g, resp = None, None
+        if not p["achados"]:
+            resp = _sem_base(p)
+        else:
+            buf, decidido = "", False      # segura o início do texto para detectar a resposta SEM_BASE (que não deve aparecer na tela)
+            try:
+                for ev, dados in llm.gerar_resposta_stream(p["limpa"], p["achados"], p["historico"]):
+                    if ev == "fim":
+                        g = dados
+                        break
+                    if decidido:
+                        yield "delta", {"texto": dados}
+                        continue
+                    buf += dados
+                    cand = buf.lstrip().upper()
+                    if "SEM_BASE".startswith(cand) and len(cand) < 8:
+                        continue                                     # ainda indeciso
+                    decidido = True
+                    if not cand.startswith("SEM_BASE"):
+                        yield "delta", {"texto": buf}
+                if g is not None:
+                    if not decidido and not g["texto"].strip().upper().startswith("SEM_BASE"):
+                        yield "delta", {"texto": buf}
+                    resp = _resposta_da_llm(p, g)
+            except llm.LLMIndisponivel as e:
+                resp = _resposta_sem_llm(p, str(e))
+        resp["id"] = _registrar_chat(c, p, resp, g)
+        yield "fim", resp
+    return Fluxo(gerar())
 
 
 @rota("GET", "/api/historico")
@@ -634,6 +703,27 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(corpo)
 
+    def _fluxo(self, fluxo):
+        self.send_response(200)
+        for k, v in (("Content-Type", "text/event-stream; charset=utf-8"), ("Cache-Control", "no-cache, no-transform"), ("X-Accel-Buffering", "no"),
+                     ("X-Content-Type-Options", "nosniff"), ("X-Frame-Options", "DENY"), ("Referrer-Policy", "no-referrer")):
+            self.send_header(k, v)
+        self.end_headers()                                   # HTTP/1.0: o fim do fluxo é o fechamento da conexão
+
+        def enviar(evento, dados):
+            self.wfile.write(f"event: {evento}\ndata: {json.dumps(dados, ensure_ascii=False)}\n\n".encode("utf-8"))
+            self.wfile.flush()
+        try:
+            for evento, dados in fluxo.gerador:
+                enviar(evento, dados)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass                                              # o navegador fechou a aba no meio da resposta
+        except Exception as e:
+            print(f"[erro] streaming: {type(e).__name__}: {e}")
+            try:
+                enviar("erro", {"mensagem": "Erro interno do servidor."})
+            except OSError:
+                pass
     def _json(self, codigo, obj, extra=None):
         self._enviar(codigo, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", extra)
 
@@ -688,6 +778,8 @@ class Handler(BaseHTTPRequestHandler):
             extra = None
             if isinstance(res, tuple):
                 res, extra = res
+            if isinstance(res, Fluxo):                       # streaming (SSE)
+                return self._fluxo(res)
             if isinstance(res, Binario):
                 return self._enviar(200, res.dados, res.ctype, res.headers)
             self._json(200, res, extra)
@@ -721,7 +813,7 @@ if __name__ == "__main__":
     if not db.DB.exists():
         raise SystemExit("Banco não encontrado. Rode antes: python init_db.py")
     with db.conectar() as con:
-        if con.execute("PRAGMA user_version").fetchone()[0] < 3:
+        if con.execute("PRAGMA user_version").fetchone()[0] < 4:
             raise SystemExit("Banco desatualizado. Rode: python init_db.py")
         if not con.execute("SELECT 1 FROM usuarios WHERE tipo='master'").fetchone():
             print("Aviso: não há usuário master. Crie o seu com: python criar_master.py")

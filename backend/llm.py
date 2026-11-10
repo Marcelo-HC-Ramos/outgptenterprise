@@ -102,30 +102,53 @@ def _traduzir_erro(anthropic, e):
     return "Falha ao chamar a LLM."
 
 
+def _pedido(pergunta, itens, historico):
+    """Parâmetros da chamada à API (iguais para a resposta completa e para o streaming)."""
+    return dict(
+        model=MODELO,
+        max_tokens=MAX_TOKENS,
+        system=SISTEMA,
+        output_config={"effort": ESFORCO},
+        messages=_historico(historico) + [
+            {"role": "user", "content": f"{montar_contexto(itens)}\n\n<pergunta>\n{_limpa(pergunta)}\n</pergunta>"}],
+    )
+
+
+def _resultado(resp):
+    if resp.stop_reason == "refusal":
+        raise LLMIndisponivel("A LLM recusou a solicitação.")
+    texto = "".join(b.text for b in resp.content if b.type == "text").strip()
+    if not texto:
+        raise LLMIndisponivel("A LLM não devolveu texto.")
+    return {"texto": texto, "modelo": resp.model, "tokens_entrada": resp.usage.input_tokens, "tokens_saida": resp.usage.output_tokens}
+
+
 def gerar_resposta(pergunta, itens, historico=None):
     """Devolve {'texto', 'modelo', 'tokens_entrada', 'tokens_saida'}. Levanta LLMIndisponivel se não der."""
     if not disponivel():
         raise LLMIndisponivel("LLM não configurada (defina a chave da API em Administração).")
     import anthropic
     try:
-        resp = _cliente().messages.create(
-            model=MODELO,
-            max_tokens=MAX_TOKENS,
-            system=SISTEMA,
-            output_config={"effort": ESFORCO},
-            messages=_historico(historico) + [
-                {"role": "user", "content": f"{montar_contexto(itens)}\n\n<pergunta>\n{_limpa(pergunta)}\n</pergunta>"}],
-        )
+        resp = _cliente().messages.create(**_pedido(pergunta, itens, historico))
     except anthropic.APIError as e:
         raise LLMIndisponivel(_traduzir_erro(anthropic, e))
-    if resp.stop_reason == "refusal":
-        raise LLMIndisponivel("A LLM recusou a solicitação.")
-    texto = "".join(b.text for b in resp.content if b.type == "text").strip()
-    if not texto:
-        raise LLMIndisponivel("A LLM não devolveu texto.")
-    return {"texto": texto, "modelo": resp.model, "tokens_entrada": resp.usage.input_tokens,
-            "tokens_saida": resp.usage.output_tokens}
+    return _resultado(resp)
 
+
+def gerar_resposta_stream(pergunta, itens, historico=None):
+    """Gerador de eventos: ("delta", trecho_de_texto) enquanto a LLM escreve e, no fim, ("fim", resultado).
+    Levanta LLMIndisponivel se não der (pode acontecer no meio do texto)."""
+    if not disponivel():
+        raise LLMIndisponivel("LLM não configurada (defina a chave da API em Administração).")
+    import anthropic
+    try:
+        with _cliente().messages.stream(**_pedido(pergunta, itens, historico)) as fluxo:
+            for trecho in fluxo.text_stream:
+                yield ("delta", trecho)
+            final = fluxo.get_final_message()
+    except anthropic.APIError as e:
+        raise LLMIndisponivel(_traduzir_erro(anthropic, e))
+    yield ("fim", _resultado(final))
 
 # ---------- Administração da chave ----------
 def testar(chave=None):

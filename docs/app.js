@@ -146,9 +146,36 @@ const Dados = {
   sugestoes: () => estado.demo ? Demo.sugestoes() : api("/api/sugestoes" + qEmpresa()),
   conteudos: () => estado.demo ? Demo.conteudos() : api("/api/conteudos" + qEmpresa()),
   conteudo: id => estado.demo ? Demo.conteudo(id) : api(`/api/conteudos/${id}`),
-  chat: (pergunta, historico) => estado.demo ? Demo.chat(pergunta) : api("/api/chat", { method: "POST", body: { pergunta, historico, empresa_id: estado.empresaId } }),
+  chat: (pergunta, historico, aoTexto) => estado.demo ? Demo.chat(pergunta) : chatStream(pergunta, historico, aoTexto),
 };
 
+// Resposta em tempo real: lê os eventos (SSE) de /api/chat/stream e chama aoTexto a cada pedaço de texto
+async function chatStream(pergunta, historico, aoTexto) {
+  const corpo = JSON.stringify({ pergunta, historico, empresa_id: estado.empresaId });
+  const r = await fetch("/api/chat/stream", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: corpo });
+  if (r.status === 401) { mostrarLogin("Sua sessão expirou. Entre novamente."); throw Object.assign(new Error("sessão expirada"), { status: 401 }); }
+  if (!r.ok) { let d = null; try { d = await r.json(); } catch { /* sem corpo */ } throw Object.assign(new Error(d?.mensagem || `Erro ${r.status}`), { status: r.status }); }
+  if (!r.body?.getReader) return api("/api/chat", { method: "POST", body: { pergunta, historico, empresa_id: estado.empresaId } });   // navegador sem streaming
+  const leitor = r.body.getReader(), dec = new TextDecoder();
+  let buf = "", final = null;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf("\n\n")) >= 0) {
+      const bloco = buf.slice(0, i); buf = buf.slice(i + 2);
+      const ev = /^event: (.*)$/m.exec(bloco)?.[1], dados = /^data: (.*)$/m.exec(bloco)?.[1];
+      if (!ev || !dados) continue;
+      const d = JSON.parse(dados);
+      if (ev === "delta") aoTexto?.(d.texto);
+      else if (ev === "fim") final = d;
+      else if (ev === "erro") throw new Error(d.mensagem);
+    }
+  }
+  if (!final) throw new Error("A resposta foi interrompida. Tente novamente.");
+  return final;
+}
 // ---------- Tema ----------
 const temaBtn = $("#theme");
 function aplicarTema(t) {
@@ -416,8 +443,16 @@ async function telaChat() {
   const perguntar = async texto => {
     add("user", esc(texto));
     const w = add("bot typing", estado.demo ? "Buscando nos conteúdos..." : "Consultando os conteúdos e preparando a resposta...");
+    let acumulado = "", agendado = false, finalizado = false;
+    const aoTexto = t => {        // mostra o texto aos poucos (no máximo um redesenho a cada 40 ms)
+      acumulado += t;
+      if (agendado) return;
+      agendado = true;
+      setTimeout(() => { agendado = false; if (finalizado) return; w.className = "msg bot digitando"; w.innerHTML = md(acumulado); msgs.scrollTop = msgs.scrollHeight; }, 40);
+    };
     try {
-      const r = await Dados.chat(texto, conversa);
+      const r = await Dados.chat(texto, conversa, aoTexto);
+      finalizado = true;
       w.className = "msg bot";
       const selo = r.gerado_por_ia ? `<span class="selo">🤖 Resposta gerada por IA a partir dos conteúdos</span>` : r.encontrado ? `<span class="selo">🔎 Trecho do manual${estado.demo ? " (demonstração)" : ""}</span>` : "";
       w.innerHTML = md(r.resposta) + (r.fontes.length ? `<div class="cites">${mostrarFontes(r.fontes)}</div>` : "") + (selo ? `<div class="cites">${selo}</div>` : "")
@@ -425,7 +460,7 @@ async function telaChat() {
         + (r.pii_mascaradas?.length ? `<div class="nota">🔒 Dados sensíveis mascarados antes da consulta: ${esc(r.pii_mascaradas.join(", "))}</div>` : "");
       w.querySelectorAll("[data-fonte]").forEach(b => b.onclick = async () => { try { const c = await Dados.conteudo(+b.dataset.fonte); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}</p>${md(c.texto)}`, { larga: true }); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
       if (r.encontrado) { conversa.push({ pergunta: texto, resposta: r.resposta }); conversa = conversa.slice(-3); }
-    } catch (err) { if (err.status === 401) return; w.className = "msg bot"; w.innerHTML = `⚠️ ${esc(err.message)}`; }
+    } catch (err) { finalizado = true; if (err.status === 401) return; w.className = "msg bot"; w.innerHTML = `⚠️ ${esc(err.message)}`; }
     msgs.scrollTop = msgs.scrollHeight;
   };
   $("#chat-form").onsubmit = e => { e.preventDefault(); const q = $("#q"), t = q.value.trim(); if (t) perguntar(t); q.value = ""; };
