@@ -2,3 +2,5 @@ Faker>=24
 chromadb>=1.0
 fastembed>=0.3
 anthropic>=1.0
+pypdf>=4
+python-docx>=1.1

@@ -4,14 +4,14 @@ import sqlite3
 from pathlib import Path
 
 BASE = Path(__file__).parent
+ENV_ARQ = Path(os.environ.get("OUTGPT_ENV_ARQ") or BASE / ".env")
 
 
 def carregar_env():
     """Lê backend/.env (CHAVE=valor) sem sobrescrever variáveis que já existem no ambiente."""
-    arq = BASE / ".env"
-    if not arq.exists():
+    if not ENV_ARQ.exists():
         return
-    for linha in arq.read_text(encoding="utf-8").splitlines():
+    for linha in ENV_ARQ.read_text(encoding="utf-8").splitlines():
         linha = linha.strip()
         if not linha or linha.startswith("#") or "=" not in linha:
             continue

@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS conteudos (
   categoria TEXT NOT NULL,
   texto TEXT NOT NULL,
   pergunta_exemplo TEXT,
+  resposta_exemplo TEXT,                -- resposta aprovada (usada nos questionários dos cursos)
+  arquivo_nome TEXT,                   -- preenchido quando o conteúdo veio de um arquivo enviado
   contem_pii INTEGER NOT NULL DEFAULT 0 CHECK (contem_pii IN (0,1)),
   visibilidade TEXT NOT NULL DEFAULT 'internos' CHECK (visibilidade IN ('todos','internos')),
   criado_por INTEGER REFERENCES usuarios(id) ON DELETE SET NULL,
@@ -59,6 +61,11 @@ CREATE TABLE IF NOT EXISTS conteudos (
 );
 CREATE INDEX IF NOT EXISTS idx_conteudos_empresa ON conteudos(empresa_id);
 
+-- ===== Índice de palavras-chave (busca híbrida: complementa os vetores do ChromaDB) =====
+CREATE VIRTUAL TABLE IF NOT EXISTS trechos_fts USING fts5(
+  texto, conteudo_id UNINDEXED, empresa_id UNINDEXED, visibilidade UNINDEXED, ordem UNINDEXED,
+  tokenize = 'unicode61 remove_diacritics 2'
+);
 -- ===== Histórico de perguntas ao assistente (a pergunta é gravada já anonimizada) =====
 CREATE TABLE IF NOT EXISTS historico_duvidas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -75,40 +82,34 @@ CREATE TABLE IF NOT EXISTS historico_duvidas (
 );
 CREATE INDEX IF NOT EXISTS idx_historico_empresa ON historico_duvidas(empresa_id, criado_em);
 
--- ===== Trilhas de aprendizagem =====
-CREATE TABLE IF NOT EXISTS trilhas (
+-- ===== Cursos (gerados a partir dos conteúdos da empresa) =====
+CREATE TABLE IF NOT EXISTS cursos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  empresa_id INTEGER REFERENCES empresas(id) ON DELETE CASCADE,
+  empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
   titulo TEXT NOT NULL,
-  nivel TEXT NOT NULL CHECK (nivel IN ('Iniciante','Intermediário','Avançado'))
+  descricao TEXT,
+  categoria TEXT,                       -- categoria de origem (cursos automáticos)
+  nivel TEXT NOT NULL DEFAULT 'Iniciante' CHECK (nivel IN ('Iniciante','Intermediário','Avançado')),
+  ordem INTEGER NOT NULL DEFAULT 0,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
 );
+CREATE INDEX IF NOT EXISTS idx_cursos_empresa ON cursos(empresa_id);
 
-CREATE TABLE IF NOT EXISTS modulos (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trilha_id INTEGER NOT NULL REFERENCES trilhas(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS curso_itens (   -- lições de um curso, na ordem
+  curso_id INTEGER NOT NULL REFERENCES cursos(id) ON DELETE CASCADE,
+  conteudo_id INTEGER NOT NULL REFERENCES conteudos(id) ON DELETE CASCADE,
   ordem INTEGER NOT NULL,
-  titulo TEXT NOT NULL,
-  conteudo_id INTEGER REFERENCES conteudos(id) ON DELETE SET NULL,
-  texto TEXT NOT NULL,
-  UNIQUE (trilha_id, ordem)
+  PRIMARY KEY (curso_id, conteudo_id)
 );
 
-CREATE TABLE IF NOT EXISTS questoes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  trilha_id INTEGER NOT NULL REFERENCES trilhas(id) ON DELETE CASCADE,
-  enunciado TEXT NOT NULL,
-  alternativas TEXT NOT NULL,            -- JSON: ["a","b","c","d"]
-  indice_correto INTEGER NOT NULL,
-  explicacao TEXT
-);
-
-CREATE TABLE IF NOT EXISTS progresso (
+CREATE TABLE IF NOT EXISTS progresso_licoes (
   usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
-  trilha_id INTEGER NOT NULL REFERENCES trilhas(id) ON DELETE CASCADE,
-  percentual INTEGER NOT NULL DEFAULT 0 CHECK (percentual BETWEEN 0 AND 100),
-  PRIMARY KEY (usuario_id, trilha_id)
+  curso_id INTEGER NOT NULL REFERENCES cursos(id) ON DELETE CASCADE,
+  conteudo_id INTEGER NOT NULL REFERENCES conteudos(id) ON DELETE CASCADE,
+  concluida_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  acertou INTEGER,                      -- resultado da pergunta de verificação (NULL = não respondida)
+  PRIMARY KEY (usuario_id, curso_id, conteudo_id)
 );
-
 -- ===== Pesquisa com especialistas =====
 CREATE TABLE IF NOT EXISTS especialistas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

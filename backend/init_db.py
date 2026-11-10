@@ -1,4 +1,4 @@
-"""Cria o banco outgpt.db (esquema v2: multiempresa + autenticação) e carrega as perguntas da pesquisa.
+"""Cria ou atualiza o banco outgpt.db (esquema v3: multiempresa, autenticação e cursos) e carrega as perguntas da pesquisa.
 
 Uso:  python init_db.py          # cria ou atualiza o banco (preserva a pesquisa e dados já existentes da v2)
       python init_db.py --reset  # apaga o arquivo e recria do zero
@@ -11,7 +11,7 @@ import sys
 import db
 
 BASE = db.BASE
-VERSAO = 2
+VERSAO = 3
 
 PERGUNTAS = [
     (1, "Em uma escala de 1 a 5, qual a importância de reduzir o tempo de onboarding de novos integrantes com apoio de IA generativa?",
@@ -44,7 +44,31 @@ PERGUNTAS = [
 
 
 # tabelas da versão 1 (demonstração) que foram substituídas pelo modelo multiempresa
-LEGADO = ["progresso", "historico_duvidas", "questoes", "modulos", "trilhas", "chunks", "documentos", "sops", "usuarios"]
+LEGADO_V1 = ["progresso", "historico_duvidas", "questoes", "modulos", "trilhas", "chunks", "documentos", "sops", "usuarios"]
+# tabelas da versão 2 substituídas pelo modelo de cursos (v3)
+LEGADO_V2 = ["progresso", "questoes", "modulos", "trilhas"]
+
+
+def colunas(con, tabela):
+    return {r[1] for r in con.execute(f"PRAGMA table_info({tabela})")}
+
+
+def migrar(con):
+    versao = con.execute("PRAGMA user_version").fetchone()[0]
+    if versao >= VERSAO:
+        return
+    existe = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='usuarios'").fetchone()
+    if existe and versao < 2:     # banco da v1: só havia dados de demonstração nessas tabelas; a pesquisa é preservada
+        for t in LEGADO_V1:
+            con.execute(f"DROP TABLE IF EXISTS {t}")
+        print("Banco da versão 1 atualizado (tabelas de demonstração substituídas; pesquisa preservada).")
+    elif existe:                  # v2 -> v3: mantém empresas, usuários, conteúdos e histórico
+        for t in LEGADO_V2:
+            con.execute(f"DROP TABLE IF EXISTS {t}")
+        for col in ("resposta_exemplo TEXT", "arquivo_nome TEXT"):
+            if col.split()[0] not in colunas(con, "conteudos"):
+                con.execute(f"ALTER TABLE conteudos ADD COLUMN {col}")
+        print("Banco da versão 2 atualizado para a v3 (cursos e arquivos).")
 
 
 def main():
@@ -52,16 +76,10 @@ def main():
         db.DB.unlink()
     con = sqlite3.connect(db.DB)
     con.execute("PRAGMA foreign_keys = OFF")
-    if con.execute("PRAGMA user_version").fetchone()[0] < VERSAO:
-        existe = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='usuarios'").fetchone()
-        if existe:   # banco da v1: só havia dados de demonstração nessas tabelas; a pesquisa é preservada
-            for t in LEGADO:
-                con.execute(f"DROP TABLE IF EXISTS {t}")
-            print("Banco da versão anterior atualizado (tabelas de demonstração substituídas; pesquisa preservada).")
+    migrar(con)
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript((BASE / "schema.sql").read_text(encoding="utf-8"))
     con.execute(f"PRAGMA user_version = {VERSAO}")
-
     if not con.execute("SELECT 1 FROM perguntas LIMIT 1").fetchone():
         for ordem, texto, tipo, opcoes in PERGUNTAS:
             pid = con.execute("INSERT INTO perguntas (ordem, texto, tipo, obrigatoria) VALUES (?,?,?,?)",

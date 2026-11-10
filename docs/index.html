@@ -25,15 +25,16 @@
       <a class="brand" href="#/inicio"><span class="brand-mark">O</span><span class="logo">Out<span>GPT</span></span></a>
       <nav id="nav">
         <a href="#/inicio" data-route="inicio"><i>🏠</i>Início</a>
-        <a href="#/trilhas" data-route="trilhas"><i>🎓</i>Trilhas</a>
+        <a href="#/cursos" data-route="cursos"><i>🎓</i>Cursos</a>
         <a href="#/chat" data-route="chat"><i>✨</i>Assistente</a>
-        <a href="#/conteudos" data-route="conteudos"><i>📚</i>Conteúdos</a>
+        <a href="#/biblioteca" data-route="biblioteca"><i>📚</i>Biblioteca</a>
         <a href="#/historico" data-route="historico"><i>🕘</i>Histórico</a>
+        <div class="nav-grupo hidden" id="nav-admin">Administração</div>
         <a href="#/usuarios" data-route="usuarios" data-so="admin" data-servidor="1"><i>👥</i>Usuários</a>
         <a href="#/empresas" data-route="empresas" data-so="master" data-servidor="1"><i>🏢</i>Empresas</a>
-        <a href="#/sobre" data-route="sobre"><i>ℹ️</i>Sobre</a>
+        <a href="#/ia" data-route="ia" data-so="master" data-servidor="1"><i>🤖</i>Inteligência artificial</a>
       </nav>
-      <div class="user">
+      <div class="rodape-links"><a href="#/sobre">Sobre</a> · <a href="pesquisa.html">Pesquisa</a></div>      <div class="user">
         <div class="avatar" id="avatar">?</div>
         <div class="user-info"><strong id="user-nome"></strong><small id="user-papel"></small></div>
         <div class="user-acoes">
@@ -44,7 +45,7 @@
       <button class="theme-btn" id="theme" title="Alternar tema">🌙 Modo escuro</button>
     </aside>
     <main class="main">
-      <div id="banner-demo" class="alerta demo hidden">🧪 Modo demonstração: dados fictícios, sem login e sem IA real. Rode o servidor Python do repositório para usar o banco, os logins e a LLM.</div>
+      <div id="banner-demo" class="alerta demo hidden">🧪 Modo demonstração: sem login e sem IA — o assistente mostra o trecho do manual encontrado. Rode o servidor do projeto para usar o banco de dados, os logins e a IA.</div>
       <div id="view" class="view" tabindex="-1"></div>
     </main>
   </div>

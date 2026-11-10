@@ -100,8 +100,8 @@
 
 <script src="dados.js"></script>
 <script>
-// Página autônoma: com o servidor Python usa o SQLite; sem ele (GitHub Pages / arquivo local) roda em modo demonstração
-// com os dados fictícios de dados.js e guarda novas respostas só neste navegador.
+// Página autônoma: com o servidor Python usa o SQLite; sem ele (GitHub Pages / arquivo local) roda em modo
+// demonstração e guarda as respostas só neste navegador.
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const DEMO_KEY = "outgpt_respostas_demo";
@@ -174,7 +174,7 @@ async function iniciar() {
   try {
     const r = await api("/api/perguntas"); PERGUNTAS = r.dados;
     $("#perguntas").innerHTML = PERGUNTAS.map(desenhar).join("");
-    if (await modoDemo()) $("#aviso").innerHTML = `<div class="msg demo">🧪 Modo demonstração: os dados são fictícios e novas respostas ficam salvas só neste navegador. Para usar o banco SQLite real, rode o servidor Python do repositório.</div>`;
+    if (await modoDemo()) $("#aviso").innerHTML = `<div class="msg demo">🧪 Modo demonstração: as respostas enviadas aqui ficam salvas apenas neste navegador. Com o servidor do projeto ativo, elas vão para o banco de dados.</div>`;
   } catch { $("#perguntas").innerHTML = `<div class="msg bad">Não foi possível carregar a pesquisa. Inicie o servidor (python server.py) ou use a versão publicada.</div>`; }
 }
 

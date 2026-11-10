@@ -1,82 +1,43 @@
-/* OutGPT Enterprise — Front-end (Sprint Zero)
- * SPA em JavaScript puro. Todos os dados abaixo são SIMULADOS (mock) e serão
- * substituídos por chamadas ao backend (Python + RAG + ChromaDB/SQLite). */
-
-// ---------- Dados simulados ----------
-const DOCS = [
-  { id: 1, nome: "SOP_Abertura_de_Chamados.pdf", tipo: "PDF", chunks: 42, status: "Indexado", data: "2026-09-28" },
-  { id: 2, nome: "FAQ_Suporte_Nivel1.txt", tipo: "TXT", chunks: 18, status: "Indexado", data: "2026-09-28" },
-  { id: 3, nome: "Manual_VPN_Corporativa.pdf", tipo: "PDF", chunks: 27, status: "Indexado", data: "2026-09-30" },
-  { id: 4, nome: "Politica_Reset_de_Senhas.pdf", tipo: "PDF", chunks: 15, status: "Indexado", data: "2026-10-02" },
-  { id: 5, nome: "Tutorial_Escalonamento_N2.txt", tipo: "TXT", chunks: 21, status: "Processando", data: "2026-10-10" },
-];
-
-const TRILHAS = [
-  {
-    id: 1, titulo: "Fundamentos do Suporte Técnico", nivel: "Iniciante", progresso: 60,
-    modulos: [
-      { t: "Como abrir e classificar um chamado", fonte: "SOP_Abertura_de_Chamados.pdf, p. 3",
-        c: "Todo chamado deve ser registrado no sistema com título objetivo, descrição do problema, impacto e prioridade. A classificação segue três níveis: Baixa (sem impacto no trabalho), Média (impacto parcial) e Alta (usuário impedido de trabalhar). Chamados de prioridade Alta têm SLA de primeira resposta de 30 minutos." },
-      { t: "Atendimento de nível 1 e FAQ", fonte: "FAQ_Suporte_Nivel1.txt, seção 2",
-        c: "O nível 1 resolve solicitações recorrentes usando a base de FAQ: instalação de software homologado, acesso a pastas e impressoras. Se a solução não for encontrada em até 15 minutos, o chamado deve ser escalonado." },
-      { t: "Quando e como escalonar", fonte: "Tutorial_Escalonamento_N2.txt, seção 1",
-        c: "O escalonamento ao nível 2 exige o registro das ações já tentadas, evidências (prints, logs) e o contato do usuário. Nunca escalone sem documentar o que foi testado." },
-    ],
-    quiz: [
-      { q: "Qual o SLA de primeira resposta para chamados de prioridade Alta?", o: ["10 minutos", "30 minutos", "2 horas", "1 dia"], r: 1, e: "Conforme o SOP de abertura de chamados, a prioridade Alta tem SLA de 30 minutos." },
-      { q: "Após quanto tempo sem solução o nível 1 deve escalonar?", o: ["5 minutos", "15 minutos", "1 hora", "Nunca"], r: 1, e: "O FAQ do nível 1 define 15 minutos como limite antes do escalonamento." },
-    ],
-  },
-  {
-    id: 2, titulo: "Acesso Remoto e VPN", nivel: "Intermediário", progresso: 20,
-    modulos: [
-      { t: "Instalação do cliente VPN", fonte: "Manual_VPN_Corporativa.pdf, p. 5",
-        c: "O cliente VPN homologado deve ser baixado exclusivamente do portal interno de software. Após instalar, utilize suas credenciais corporativas e o segundo fator de autenticação." },
-      { t: "Problemas comuns de conexão", fonte: "Manual_VPN_Corporativa.pdf, p. 12",
-        c: "Falhas de conexão geralmente decorrem de: relógio do computador desajustado, 2FA expirado ou bloqueio de porta pela rede local. Teste primeiro em outra rede antes de abrir chamado." },
-    ],
-    quiz: [
-      { q: "De onde o cliente VPN deve ser baixado?", o: ["Site do fabricante", "Portal interno de software", "E-mail do colega", "Qualquer loja de apps"], r: 1, e: "Somente o portal interno garante a versão homologada." },
-    ],
-  },
-  {
-    id: 3, titulo: "Segurança e Senhas", nivel: "Iniciante", progresso: 0,
-    modulos: [
-      { t: "Política de redefinição de senhas", fonte: "Politica_Reset_de_Senhas.pdf, p. 2",
-        c: "A redefinição de senha só pode ser feita após a validação de identidade do solicitante por meio de dois dados cadastrais ou aprovação do gestor. Senhas temporárias expiram em 24 horas." },
-    ],
-    quiz: [
-      { q: "Em quanto tempo expira uma senha temporária?", o: ["1 hora", "12 horas", "24 horas", "7 dias"], r: 2, e: "A política define validade de 24 horas." },
-    ],
-  },
-];
-
-const RESPOSTAS = [
-  { k: ["vpn", "conect"], t: "Falhas de conexão na VPN geralmente decorrem de relógio desajustado, 2FA expirado ou bloqueio de porta pela rede local. Teste em outra rede antes de abrir um chamado.", f: ["Manual_VPN_Corporativa.pdf, p. 12"] },
-  { k: ["sla", "prioridade", "chamado"], t: "Chamados de prioridade Alta têm SLA de primeira resposta de 30 minutos. Os chamados devem ter título objetivo, descrição, impacto e prioridade.", f: ["SOP_Abertura_de_Chamados.pdf, p. 3"] },
-  { k: ["senha", "reset", "redefin"], t: "A redefinição exige validação de identidade por dois dados cadastrais ou aprovação do gestor. A senha temporária expira em 24 horas.", f: ["Politica_Reset_de_Senhas.pdf, p. 2"] },
-  { k: ["escalon", "nível 2", "nivel 2", "n2"], t: "Escalone ao nível 2 após 15 minutos sem solução, registrando as ações testadas, evidências (prints/logs) e contato do usuário.", f: ["FAQ_Suporte_Nivel1.txt, seção 2", "Tutorial_Escalonamento_N2.txt, seção 1"] },
-];
-const SEM_RESPOSTA = { t: "Não encontrei essa informação nos manuais indexados. Para evitar respostas inventadas, recomendo consultar seu gestor ou abrir um chamado.", f: [] };
-
-let historico = [
-  { quando: "12/10 14:02", p: "Como abrir um chamado de prioridade alta?", f: "SOP_Abertura_de_Chamados.pdf" },
-  { quando: "11/10 09:40", p: "Qual o prazo da senha temporária?", f: "Politica_Reset_de_Senhas.pdf" },
-];
-
+/* OutGPT Enterprise - front-end
+ * Com o servidor Python há login, banco SQLite, cursos por empresa e IA. Sem ele (GitHub Pages ou arquivo local)
+ * roda em modo demonstração, com o conteúdo de exemplo de demo_conteudos.js. */
+"use strict";
 
 // ---------- Utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
 const view = $("#view");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-let pendente = null; // pergunta digitada na busca da página inicial
 const estado = { usuario: null, demo: false, empresas: [], empresaId: null };
 const ROTULOS = { master: "Master (dono)", admin: "Administrador", funcionario: "Funcionário", colaborador_interno: "Colaborador interno", colaborador_externo: "Colaborador externo" };
 const ehAdmin = () => ["master", "admin"].includes(estado.usuario?.tipo);
 const ehMaster = () => estado.usuario?.tipo === "master";
 const quando = s => s ? s.replace("T", " ").slice(0, 16) : "—";
+let pendente = null;       // pergunta digitada na página inicial, enviada ao abrir o assistente
+let acaoPendente = null;   // atalho do painel (ex.: abrir o envio de arquivo na biblioteca)
+let conversa = [];         // trocas recentes do assistente (memória da conversa)
 
-// Com o servidor Python há login e banco SQLite. Sem ele (GitHub Pages / arquivo local) roda em modo demonstração.
+// Texto -> HTML seguro com listas numeradas, marcadores e **negrito**
+function md(texto) {
+  const inline = s => esc(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const out = []; let lista = null;
+  const fecha = () => { if (lista) { out.push(`<${lista.tag}>${lista.itens.join("")}</${lista.tag}>`); lista = null; } };
+  for (const bruto of String(texto ?? "").replace(/\r/g, "").split("\n")) {
+    const l = bruto.trim();
+    if (!l) { fecha(); continue; }
+    const num = l.match(/^\d+[.)]\s+(.*)/), pont = l.match(/^[-•*]\s+(.*)/);
+    if (num || pont) {
+      const tag = num ? "ol" : "ul";
+      if (lista && lista.tag !== tag) fecha();
+      (lista ||= { tag, itens: [] }).itens.push(`<li>${inline((num || pont)[1])}</li>`);
+    } else { fecha(); out.push(`<p>${inline(l)}</p>`); }
+  }
+  fecha();
+  return out.join("");
+}
+const ICONES = [["segur", "🔐"], ["ti ", "💻"], ["acesso", "💻"], ["infra", "🛠️"], ["recursos humanos", "👥"], ["rh", "👥"], ["opera", "📦"], ["engenharia", "🧠"], ["geral", "📘"]];
+const iconeDe = cat => (ICONES.find(([k]) => (cat || "").toLowerCase().includes(k)) || [0, "📚"])[1];
+
+// ---------- API ----------
 async function api(url, opts = {}) {
   const init = { method: opts.method || "GET", headers: {}, credentials: "same-origin" };
   if (init.method !== "GET") { init.headers["Content-Type"] = "application/json"; init.body = JSON.stringify(opts.body ?? {}); }
@@ -86,6 +47,107 @@ async function api(url, opts = {}) {
   if (!r.ok) throw Object.assign(new Error(d?.mensagem || `Erro ${r.status}`), { status: r.status });
   return d;
 }
+const qEmpresa = () => ehMaster() && estado.empresaId ? `?empresa_id=${estado.empresaId}` : "";
+
+// ---------- Modo demonstração (sem servidor): cursos, quiz e busca sobre o conteúdo de exemplo ----------
+const Demo = (() => {
+  const PARTE_MAX = 12, KEY = "outgpt_demo_prog";
+  const dados = () => window.DEMO_CONTEUDOS || [];
+  const prog = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
+  const salvar = p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* sem armazenamento */ } };
+  const minutos = t => Math.max(1, Math.ceil((t.match(/\w+/g) || []).length / 180));
+  const hash = s => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  const embaralhar = (a, r) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const semAcento = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const STOP = new Set("a o as os um uma de da do das dos em no na nos nas ao aos para por pra com sem sobre entre que qual quais quanto quantos como quando onde quem e ou se mas ser sao foi tem ter tenho posso preciso devo fazer faco minha meu isso esse essa este esta ha ja mais muito existe".split(" "));
+  const termos = p => semAcento(p).match(/[a-z0-9]+/g)?.filter(t => t.length >= 3 && !STOP.has(t)) || [];
+  const radical = t => t.length >= 5 ? t.slice(0, Math.max(4, t.length - 2)) : t;
+
+  function cursos() {
+    const porCat = new Map();
+    dados().forEach((c, i) => { if (c.texto.length <= 6000) { if (!porCat.has(c.categoria)) porCat.set(c.categoria, []); porCat.get(c.categoria).push({ ...c, n: i + 1 }); } });
+    const out = []; let id = 0;
+    for (const [cat, itens] of porCat) {
+      const partes = Math.ceil(itens.length / PARTE_MAX), tam = Math.ceil(itens.length / partes);
+      for (let p = 0; p < partes; p++) out.push({ id: ++id, titulo: partes === 1 ? cat : `${cat} · Parte ${p + 1} de ${partes}`, descricao: `Procedimentos e regras de ${cat} da sua empresa.`,
+        categoria: cat, nivel: p === 0 ? "Iniciante" : "Intermediário", itens: itens.slice(p * tam, (p + 1) * tam) });
+    }
+    return out;
+  }
+  function quiz(c) {
+    if (!c.pergunta || !c.resposta) return null;
+    const r = rng(hash("quiz:" + c.codigo)), certa = c.resposta.trim(), vistos = new Set([certa]), mesma = [], resto = [];
+    for (const o of dados()) {
+      const t = (o.resposta || "").trim();
+      if (o.codigo === c.codigo || !t || vistos.has(t)) continue;
+      vistos.add(t); (o.categoria === c.categoria ? mesma : resto).push(t);
+    }
+    const opcoes = embaralhar([...embaralhar(mesma, r), ...embaralhar(resto, r)].slice(0, 3).concat(certa), r);
+    return { pergunta: c.pergunta, opcoes, indice: opcoes.indexOf(certa) };
+  }
+  const resumoCurso = (c, p) => {
+    const feitas = c.itens.filter(i => i.codigo in p), resp = feitas.filter(i => p[i.codigo] !== null);
+    const prox = c.itens.find(i => !(i.codigo in p));
+    return { id: c.id, titulo: c.titulo, descricao: c.descricao, categoria: c.categoria, nivel: c.nivel, licoes: c.itens.length, concluidas: feitas.length,
+      respondidas: resp.length, acertos: resp.filter(i => p[i.codigo] === 1).length, minutos: c.itens.reduce((s, i) => s + minutos(i.texto), 0),
+      ultima: feitas.length ? "1" : null, proxima: prox ? { conteudo_id: prox.n, titulo: prox.titulo } : null, percentual: Math.round(100 * feitas.length / c.itens.length) };
+  };
+  return {
+    async cursos() {
+      const p = prog(), itens = cursos().map(c => resumoCurso(c, p));
+      const abertos = itens.filter(c => c.proxima), andamento = abertos.filter(c => c.concluidas), esc_ = (andamento[0] || abertos[0]);
+      const licoes = itens.reduce((s, c) => s + c.licoes, 0), feitas = itens.reduce((s, c) => s + c.concluidas, 0);
+      return { itens, pode_editar: false, resumo: { cursos: itens.length, cursos_concluidos: itens.filter(c => c.percentual === 100).length, licoes, concluidas: feitas,
+        percentual: licoes ? Math.round(100 * feitas / licoes) : 0, respondidas: itens.reduce((s, c) => s + c.respondidas, 0), acertos: itens.reduce((s, c) => s + c.acertos, 0),
+        continuar: esc_ ? { curso_id: esc_.id, curso: esc_.titulo, conteudo_id: esc_.proxima.conteudo_id, licao: esc_.proxima.titulo, percentual: esc_.percentual } : null } };
+    },
+    async curso(id) {
+      const c = cursos().find(x => x.id === +id); if (!c) throw new Error("Curso não encontrado.");
+      const p = prog(), licoes = c.itens.map(i => { const q = quiz(i); return { conteudo_id: i.n, codigo: i.codigo, titulo: i.titulo, texto: i.texto, minutos: minutos(i.texto),
+        concluida: i.codigo in p, acertou: i.codigo in p && p[i.codigo] !== null ? p[i.codigo] === 1 : null, quiz: q ? { pergunta: q.pergunta, opcoes: q.opcoes } : null }; });
+      const feitas = licoes.filter(l => l.concluida).length;
+      return { id: c.id, titulo: c.titulo, descricao: c.descricao, categoria: c.categoria, nivel: c.nivel, licoes, concluidas: feitas, percentual: Math.round(100 * feitas / licoes.length) };
+    },
+    async concluir(_cid, lid) { const c = dados()[lid - 1], p = prog(); if (c && !(c.codigo in p)) { p[c.codigo] = null; salvar(p); } return { ok: true }; },
+    async responder(_cid, lid, opcao) {
+      const c = dados()[lid - 1], q = c && quiz(c); if (!q) throw new Error("Pergunta não encontrada.");
+      const p = prog(); if (!(c.codigo in p) || p[c.codigo] === null) { p[c.codigo] = opcao === q.indice ? 1 : 0; salvar(p); }
+      return { correta: opcao === q.indice, indice_correto: q.indice, resposta_certa: q.opcoes[q.indice] };
+    },
+    async sugestoes() { return { itens: embaralhar(dados().filter(c => c.pergunta).map(c => c.pergunta), Math.random).slice(0, 6) }; },
+    async conteudos() {
+      const itens = dados().map((c, i) => ({ id: i + 1, codigo: c.codigo, titulo: c.titulo, categoria: c.categoria, resumo: c.texto.slice(0, 300), tamanho: c.texto.length,
+        visibilidade: "todos", contem_pii: 0, arquivo_nome: null, pergunta_exemplo: c.pergunta }));
+      return { total: itens.length, categorias: [...new Set(itens.map(c => c.categoria))].sort(), itens, pode_editar: false };
+    },
+    async conteudo(id) { const c = dados()[id - 1]; return { id, codigo: c.codigo, titulo: c.titulo, categoria: c.categoria, texto: c.texto, visibilidade: "todos" }; },
+    async chat(pergunta) {   // busca por palavras-chave no conteúdo de exemplo (sem IA)
+      const ts = [...new Set(termos(pergunta))]; if (!ts.length) return semResposta();
+      const docs = dados().map((c, i) => ({ c, n: i + 1, norm: semAcento(`${c.titulo} ${c.texto} ${c.pergunta || ""}`) }));
+      const df = t => docs.filter(d => d.norm.includes(radical(t))).length || 1;
+      const pont = docs.map(d => { let s = 0, casados = 0; for (const t of ts) if (d.norm.includes(radical(t))) { casados++; s += Math.log(1 + docs.length / df(t)); } return { ...d, s, casados }; })
+        .filter(d => d.casados >= Math.min(2, ts.length) && d.casados / ts.length >= 0.5).sort((a, b) => b.s - a.s);
+      if (!pont.length) return semResposta();
+      const t = pont[0];
+      return { encontrado: true, gerado_por_ia: false, resposta: `Com base em «${t.c.titulo}» (${t.c.codigo}):\n\n${t.c.texto}`, pii_mascaradas: [],
+        fontes: [{ conteudo_id: t.n, codigo: t.c.codigo, titulo: t.c.titulo, categoria: t.c.categoria }] };
+    },
+  };
+  function semResposta() { return { encontrado: false, gerado_por_ia: false, fontes: [], pii_mascaradas: [], resposta: "Não encontrei essa informação nos conteúdos de exemplo." }; }
+})();
+
+// Acesso aos dados: servidor (SQLite + IA) ou demonstração
+const Dados = {
+  cursos: () => estado.demo ? Demo.cursos() : api("/api/cursos" + qEmpresa()),
+  curso: id => estado.demo ? Demo.curso(id) : api(`/api/cursos/${id}${qEmpresa()}`),
+  concluir: (c, l) => estado.demo ? Demo.concluir(c, l) : api(`/api/cursos/${c}/licoes/${l}/concluir${qEmpresa()}`, { method: "POST" }),
+  responder: (c, l, opcao) => estado.demo ? Demo.responder(c, l, opcao) : api(`/api/cursos/${c}/licoes/${l}/responder${qEmpresa()}`, { method: "POST", body: { opcao } }),
+  sugestoes: () => estado.demo ? Demo.sugestoes() : api("/api/sugestoes" + qEmpresa()),
+  conteudos: () => estado.demo ? Demo.conteudos() : api("/api/conteudos" + qEmpresa()),
+  conteudo: id => estado.demo ? Demo.conteudo(id) : api(`/api/conteudos/${id}`),
+  chat: (pergunta, historico) => estado.demo ? Demo.chat(pergunta) : api("/api/chat", { method: "POST", body: { pergunta, historico, empresa_id: estado.empresaId } }),
+};
 
 // ---------- Tema ----------
 const temaBtn = $("#theme");
@@ -97,9 +159,9 @@ aplicarTema(matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light
 temaBtn.onclick = () => aplicarTema(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
 
 // ---------- Janelas (modais) ----------
-function janela(titulo, corpo, { salvar = "Salvar", aoSalvar = null } = {}) {
+function janela(titulo, corpo, { salvar = "Salvar", aoSalvar = null, larga = false } = {}) {
   const d = document.createElement("dialog");
-  d.className = "modal";
+  d.className = "modal" + (larga ? " larga" : "");
   d.innerHTML = `<form method="dialog"><h2>${esc(titulo)}</h2><div class="modal-body">${corpo}</div><div id="j-erro" class="alerta bad hidden" role="alert"></div>
     <div class="modal-acoes"><button type="button" class="btn" data-fechar>${aoSalvar ? "Cancelar" : "Fechar"}</button>${aoSalvar ? `<button class="btn primary" id="j-salvar">${esc(salvar)}</button>` : ""}</div></form>`;
   document.body.appendChild(d);
@@ -117,7 +179,7 @@ function janela(titulo, corpo, { salvar = "Salvar", aoSalvar = null } = {}) {
 }
 const confirmar = msg => new Promise(res => {
   const d = janela("Confirmar", `<p>${esc(msg)}</p>`, { salvar: "Confirmar", aoSalvar: async () => res(true) });
-  d.addEventListener("close", () => res(false));            // Esc ou Cancelar: a promessa já resolvida ignora este valor
+  d.addEventListener("close", () => res(false));
   d.querySelector("[data-fechar]").addEventListener("click", () => res(false));
 });
 
@@ -138,9 +200,10 @@ function entrar(usuario) {
   $("#banner-demo").classList.toggle("hidden", !estado.demo);
   $(".user-acoes").classList.toggle("hidden", estado.demo);
   document.querySelectorAll("#nav a").forEach(a => {
-    const so = a.dataset.so;   // restrição de perfil: "admin" (master+admin) | "master"
+    const so = a.dataset.so;   // restrição de perfil: "admin" (master + admin) | "master"
     a.classList.toggle("hidden", Boolean((so === "admin" && !ehAdmin()) || (so === "master" && !ehMaster()) || (a.dataset.servidor && estado.demo)));
   });
+  $("#nav-admin").classList.toggle("hidden", !ehAdmin() || estado.demo);
   carregarEmpresas().finally(render);
 }
 async function carregarEmpresas() {
@@ -148,14 +211,13 @@ async function carregarEmpresas() {
   try { estado.empresas = (await api("/api/empresas")).itens; } catch { estado.empresas = []; }
   if (!estado.empresas.some(e => e.id === estado.empresaId)) estado.empresaId = estado.empresas[0]?.id ?? null;
 }
-// Seletor de empresa (somente o master administra mais de uma)
+// Seletor de empresa (o master administra várias)
 const seletorEmpresa = () => !ehMaster() ? "" : estado.empresas.length
   ? `<label class="seletor">Empresa <select id="sel-empresa">${estado.empresas.map(e => `<option value="${e.id}" ${e.id === estado.empresaId ? "selected" : ""}>${esc(e.nome)}</option>`).join("")}</select></label>`
   : `<span class="alerta demo">Crie uma empresa primeiro (menu Empresas).</span>`;
-function ligarSeletorEmpresa(fn) {
-  const s = $("#sel-empresa"); if (s) s.onchange = () => { estado.empresaId = +s.value; fn(); };
-}
-const qEmpresa = () => ehMaster() && estado.empresaId ? `?empresa_id=${estado.empresaId}` : "";
+function ligarSeletorEmpresa(fn) { const s = $("#sel-empresa"); if (s) s.onchange = () => { estado.empresaId = +s.value; fn(); }; }
+const semEmpresa = () => ehMaster() && !estado.empresaId && !estado.demo;
+const avisoSemEmpresa = () => `<div class="card vazio"><div class="vazio-ico">🏢</div><h2>Comece criando uma empresa</h2><p class="muted">Cada empresa tem seus próprios usuários, conteúdos e cursos.</p><a class="btn primary" href="#/empresas">Criar empresa</a></div>`;
 
 $("#login-form").addEventListener("submit", async e => {
   e.preventDefault();
@@ -163,23 +225,26 @@ $("#login-form").addEventListener("submit", async e => {
   try {
     const u = await api("/api/login", { method: "POST", body: { email: $("#email").value, senha: $("#senha").value } });
     $("#senha").value = "";
+    conversa = [];
     location.hash = "#/inicio";
     entrar(u);
   } catch (err) { mostrarLogin(err.message); }
   btn.disabled = false;
 });
-$("#sair").onclick = async () => { try { await api("/api/logout", { method: "POST" }); } catch { /* já saiu */ } mostrarLogin(); };
+$("#sair").onclick = async () => { try { await api("/api/logout", { method: "POST" }); } catch { /* já saiu */ } conversa = []; mostrarLogin(); };
 $("#trocar-senha").onclick = () => janela("Alterar senha", `
   <label class="field">Senha atual<input type="password" id="s-atual" autocomplete="current-password" required></label>
   <label class="field">Nova senha (mín. 10 caracteres, com letras e números)<input type="password" id="s-nova" autocomplete="new-password" required></label>`,
   { aoSalvar: async () => { await api("/api/senha", { method: "POST", body: { atual: $("#s-atual").value, nova: $("#s-nova").value } }); } });
 
+const carregarScript = src => new Promise((ok, falha) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = falha; document.head.appendChild(s); });
 async function iniciar() {
   let r = null;
   if (location.protocol !== "file:") { try { r = await fetch("/api/eu", { credentials: "same-origin" }); } catch { r = null; } }
   if (r && r.ok) return entrar(await r.json());                         // servidor + sessão ativa
   if (r && r.status === 401) return mostrarLogin();                      // servidor, sem sessão
   estado.demo = true;                                                    // sem servidor: demonstração
+  try { await carregarScript("demo_conteudos.js"); } catch { /* sem conteúdo de exemplo */ }
   entrar({ nome: "Visitante", tipo: "funcionario", empresa: "Demonstração", llm: false });
 }
 
@@ -187,276 +252,303 @@ async function iniciar() {
 window.addEventListener("hashchange", render);
 function render() {
   if (!estado.usuario) return;
-  const [, rota = "inicio", arg] = location.hash.split("/");
-  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.route === rota || (rota === "aula" && a.dataset.route === "trilhas")));
-  const telas = { inicio: telaInicio, trilhas: telaTrilhas, aula: () => telaAula(+arg), chat: telaChat, historico: telaHistorico,
-    conteudos: estado.demo ? telaConteudosDemo : telaConteudos, usuarios: telaUsuarios, empresas: telaEmpresas, sobre: telaSobre };
-  const exige = { usuarios: ehAdmin() && !estado.demo, empresas: ehMaster() && !estado.demo };
+  const [, rota = "inicio", a1, a2] = location.hash.split("/");
+  document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.route === rota || (rota === "curso" && a.dataset.route === "cursos")));
+  const telas = { inicio: telaInicio, cursos: telaCursos, curso: () => telaCurso(+a1, +a2 || null), chat: telaChat, historico: telaHistorico,
+    biblioteca: telaBiblioteca, usuarios: telaUsuarios, empresas: telaEmpresas, ia: telaIA, sobre: telaSobre };
+  const exige = { usuarios: ehAdmin() && !estado.demo, empresas: ehMaster() && !estado.demo, ia: ehMaster() && !estado.demo };
   view.style.animation = "none"; view.offsetHeight; view.style.animation = "";
   ((rota in exige && !exige[rota]) ? telaInicio : (telas[rota] || telaInicio))();
   scrollTo(0, 0);
 }
-const erroTela = err => { view.innerHTML = `<div class="card"><h2>Não foi possível carregar</h2><p class="muted">${esc(err.message)}</p></div>`; };
+const erroTela = err => { if (err.status !== 401) view.innerHTML = `<div class="card"><h2>Não foi possível carregar</h2><p class="muted">${esc(err.message)}</p></div>`; };
+const cabecalho = (titulo, sub, acoes = "") => `<div class="page-head"><div><h1>${titulo}</h1><p class="muted">${sub}</p></div><div class="acoes">${seletorEmpresa()}${acoes}</div></div>`;
 
-// ---------- Telas ----------
-function telaInicio() {
-  const prog = Math.round(TRILHAS.reduce((s, t) => s + t.progresso, 0) / TRILHAS.length);
-  const t0 = TRILHAS[0], primeiro = estado.usuario.nome.split(" ")[0];
-  view.innerHTML = `
-    <section class="hero">
-      <h1>Olá, ${esc(primeiro)}! Aprenda o trabalho da sua equipe em dias, não em meses.</h1>
-      <p>Pergunte qualquer coisa sobre os processos da empresa. O OutGPT responde com base nos conteúdos oficiais e mostra de onde veio a informação.</p>
-      <form class="search" id="busca"><input id="busca-q" placeholder="Ex.: Como faço para acessar a VPN de casa?" aria-label="Pergunte ao assistente" required><button class="btn primary">Perguntar</button></form>
-    </section>
-    <div class="stats">
-      <div class="stat"><div class="ico">📈</div><div><b>${prog}%</b><small>Progresso geral</small></div></div>
-      <div class="stat"><div class="ico">🎓</div><div><b>${TRILHAS.length}</b><small>Trilhas</small></div></div>
-      <div class="stat"><div class="ico">💬</div><div><b id="n-duvidas">${estado.demo ? historico.length : "…"}</b><small>Dúvidas respondidas</small></div></div>
-      <div class="stat"><div class="ico">📚</div><div><b id="n-conteudos">${estado.demo ? DOCS.length : "…"}</b><small>Conteúdos</small></div></div>
-    </div>
-    <div class="section-title"><h2>Continuar aprendendo</h2><a href="#/trilhas">Ver todas →</a></div>
-    <div class="card"><div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
-      <div style="flex:1;min-width:220px"><span class="badge">${t0.nivel}</span><h3 style="margin-top:8px">${esc(t0.titulo)}</h3>
-      <div class="progress"><i style="width:${t0.progresso}%"></i></div><small>${t0.progresso}% concluído</small></div>
-      <a class="btn primary" href="#/aula/1">Retomar</a></div></div>
-    <div class="section-title"><h2>Atalhos</h2></div>
-    <div class="grid">
-      <a class="card tile" href="#/chat"><div class="thumb">✨</div><h3>Assistente</h3><small>Tire dúvidas com fonte citada.</small></a>
-      <a class="card tile" href="#/trilhas"><div class="thumb">🎓</div><h3>Trilhas</h3><small>Cursos gerados dos manuais.</small></a>
-      <a class="card tile" href="#/conteudos"><div class="thumb">📚</div><h3>Conteúdos</h3><small>Base de conhecimento da empresa.</small></a>
-    </div>`;
+// ---------- Início ----------
+const anel = pct => `<div class="anel" style="--p:${pct}"><span>${pct}%</span></div>`;
+const cartaoCurso = c => `<a class="curso" href="#/curso/${c.id}">
+  <div class="curso-topo"><span class="curso-ico">${iconeDe(c.categoria)}</span>${c.percentual === 100 ? '<span class="badge ok">Concluído</span>' : c.concluidas ? '<span class="badge">Em andamento</span>' : '<span class="badge soft">Novo</span>'}</div>
+  <h3>${esc(c.titulo)}</h3><p class="muted">${c.licoes} lições · ~${c.minutos} min</p>
+  <div class="progress"><i style="width:${c.percentual}%"></i></div><small class="muted">${c.concluidas} de ${c.licoes} concluídas</small></a>`;
+
+async function telaInicio() {
+  if (semEmpresa()) { view.innerHTML = cabecalho("Início", "Bem-vindo ao OutGPT Enterprise.") + avisoSemEmpresa(); ligarSeletorEmpresa(telaInicio); return; }
+  const primeiro = estado.usuario.nome.split(" ")[0];
+  view.innerHTML = `${cabecalho(`Olá, ${esc(primeiro)} 👋`, "Tudo o que você precisa para aprender e resolver dúvidas do dia a dia.")}
+    <form class="busca-grande" id="busca"><input id="busca-q" placeholder="Pergunte qualquer coisa sobre os procedimentos da empresa..." aria-label="Pergunte ao assistente" maxlength="1000" required><button class="btn primary">Perguntar</button></form>
+    <div class="chips-linha" id="sug"></div>
+    <div id="painel-admin"></div>
+    <div id="meu-progresso"><div class="card">Carregando...</div></div>`;
+  ligarSeletorEmpresa(telaInicio);
   $("#busca").onsubmit = e => { e.preventDefault(); pendente = $("#busca-q").value.trim(); location.hash = "#/chat"; };
-  if (!estado.demo) {
-    api("/api/historico" + qEmpresa()).then(d => { $("#n-duvidas").textContent = d.itens.length; }).catch(() => {});
-    api("/api/conteudos" + qEmpresa()).then(d => { $("#n-conteudos").textContent = d.total; }).catch(() => {});
-  }
-}
-
-function telaTrilhas() {
-  view.innerHTML = `<div class="page-head"><div><h1>Trilhas de aprendizagem</h1><p class="muted">Cursos gerados a partir dos manuais operacionais.</p></div></div>
-    <div class="grid">${TRILHAS.map(t => `
-      <div class="card"><div class="thumb">${["🛠️", "🔐", "🛡️"][t.id - 1] || "📘"}</div><span class="badge">${t.nivel}</span>
-        <h3 style="margin-top:8px">${esc(t.titulo)}</h3>
-        <small>${t.modulos.length} módulo(s) • ${t.quiz.length} questão(ões)</small>
-        <div class="progress"><i style="width:${t.progresso}%"></i></div><small>${t.progresso}%</small><br><br>
-        <a class="btn primary" href="#/aula/${t.id}">${t.progresso ? "Continuar" : "Iniciar"}</a>
-      </div>`).join("")}</div>`;
-}
-
-function telaAula(id) {
-  const t = TRILHAS.find(x => x.id === id) || TRILHAS[0];
-  let atual = 0;
-  const desenhar = () => {
-    const m = t.modulos[atual];
-    view.innerHTML = `
-      <div class="page-head"><div><a href="#/trilhas" class="muted">← Trilhas</a><h1>${esc(t.titulo)}</h1></div></div>
-      <div class="lesson-layout">
-        <div class="card"><ul class="modules">${t.modulos.map((x, i) => `<li data-i="${i}" class="${i === atual ? "active" : ""}">${i + 1}. ${esc(x.t)}</li>`).join("")}
-          <li data-i="quiz" class="${atual === "quiz" ? "active" : ""}">📝 Questionário</li></ul></div>
-        <div class="card lesson-body">${atual === "quiz" ? htmlQuiz(t) : `
-          <h2>${esc(m.t)}</h2><p>${esc(m.c)}</p>
-          <div class="source">Fonte: ${esc(m.fonte)}</div><br>
-          <button class="btn primary" id="prox">${atual < t.modulos.length - 1 ? "Próximo módulo →" : "Ir ao questionário →"}</button>`}
+  Dados.sugestoes().then(d => { $("#sug").innerHTML = d.itens.slice(0, 4).map(s => `<button class="chip" data-q="${esc(s)}">${esc(s)}</button>`).join(""); view.querySelectorAll("#sug .chip").forEach(c => c.onclick = () => { pendente = c.dataset.q; location.hash = "#/chat"; }); }).catch(() => {});
+  if (ehAdmin() && !estado.demo) painelAdmin();
+  try {
+    const d = await Dados.cursos(), r = d.resumo;
+    if (!d.itens.length) {
+      $("#meu-progresso").innerHTML = `<div class="card vazio"><div class="vazio-ico">🎓</div><h2>Ainda não há cursos</h2><p class="muted">${ehAdmin() ? "Cadastre conteúdos na Biblioteca: cada categoria vira um curso automaticamente." : "Quando sua empresa cadastrar conteúdos, os cursos aparecerão aqui."}</p>${ehAdmin() ? '<a class="btn primary" href="#/biblioteca">Ir para a Biblioteca</a>' : ""}</div>`;
+      return;
+    }
+    const cont = r.continuar;
+    $("#meu-progresso").innerHTML = `
+      <div class="grid-2">
+        <div class="card continuar">
+          <small class="muted">${cont ? "CONTINUE DE ONDE PAROU" : "PARABÉNS"}</small>
+          ${cont ? `<h2>${esc(cont.curso)}</h2><p class="muted">Próxima lição: <strong>${esc(cont.licao)}</strong></p><div class="progress"><i style="width:${cont.percentual}%"></i></div>
+            <a class="btn primary" href="#/curso/${cont.curso_id}/${cont.conteudo_id}">${cont.percentual ? "Continuar" : "Começar"} →</a>` : `<h2>Você concluiu todos os cursos 🎉</h2><p class="muted">Use o assistente sempre que surgir uma dúvida.</p>`}
         </div>
-      </div>`;
-    view.querySelectorAll(".modules li").forEach(li => li.onclick = () => { atual = li.dataset.i === "quiz" ? "quiz" : +li.dataset.i; desenhar(); });
-    const prox = $("#prox"); if (prox) prox.onclick = () => { atual = atual < t.modulos.length - 1 ? atual + 1 : "quiz"; desenhar(); };
-    if (atual === "quiz") ligarQuiz(t);
-  };
-  desenhar();
-}
-function htmlQuiz(t) {
-  return `<h2>Questionário de fixação</h2>` + t.quiz.map((q, i) => `
-    <div class="quiz-q" data-q="${i}"><strong>${i + 1}. ${esc(q.q)}</strong>
-      ${q.o.map((o, j) => `<label class="opt"><input type="radio" name="q${i}" value="${j}"> ${esc(o)}</label>`).join("")}
-      <div class="explain hidden"></div></div>`).join("") +
-    `<button class="btn primary" id="corrigir">Corrigir</button> <span id="nota" class="badge hidden"></span>`;
-}
-function ligarQuiz(t) {
-  $("#corrigir").onclick = () => {
-    let acertos = 0;
-    t.quiz.forEach((q, i) => {
-      const bloco = view.querySelector(`[data-q="${i}"]`);
-      const sel = bloco.querySelector("input:checked");
-      bloco.querySelectorAll(".opt").forEach((l, j) => { l.classList.remove("right", "wrong"); if (j === q.r) l.classList.add("right"); else if (sel && +sel.value === j) l.classList.add("wrong"); });
-      if (sel && +sel.value === q.r) acertos++;
-      const ex = bloco.querySelector(".explain"); ex.textContent = "Gabarito: " + q.e; ex.classList.remove("hidden");
-    });
-    const n = $("#nota"); n.textContent = `${acertos}/${t.quiz.length} acertos`; n.className = "badge " + (acertos === t.quiz.length ? "ok" : "warn");
-  };
+        <div class="card progresso">${anel(r.percentual)}<div><h2>Seu progresso</h2>
+          <p class="muted">${r.concluidas} de ${r.licoes} lições · ${r.cursos_concluidos} de ${r.cursos} cursos concluídos${r.respondidas ? ` · ${r.acertos}/${r.respondidas} acertos nas perguntas` : ""}</p></div></div>
+      </div>
+      <div class="section-title"><h2>Seus cursos</h2><a href="#/cursos">Ver todos (${d.itens.length}) →</a></div>
+      <div class="grid">${d.itens.slice().sort((a, b) => (b.concluidas > 0 && b.percentual < 100) - (a.concluidas > 0 && a.percentual < 100) || a.percentual - b.percentual).slice(0, 6).map(cartaoCurso).join("")}</div>`;
+  } catch (err) { erroTela(err); }
 }
 
-function telaConteudosDemo() {
-  const linhas = () => DOCS.map(d => `<tr><td>${esc(d.nome)}</td><td>${d.tipo}</td><td>${d.chunks}</td>
-    <td><span class="badge ${d.status === "Indexado" ? "ok" : "warn"}">${d.status}</span></td><td>${d.data}</td>
-    <td><button class="btn danger" data-del="${d.id}">Remover</button></td></tr>`).join("");
-  view.innerHTML = `<div class="page-head"><div><h1>Conteúdos</h1><p class="muted">Ingestão e indexação dos manuais (SOPs, FAQs, tutoriais).</p></div></div>
-    <label class="drop card" id="drop" for="file">📤 Arraste arquivos .pdf / .txt aqui ou clique para enviar
-      <input type="file" id="file" accept=".pdf,.txt,.docx" multiple hidden></label>
-    <div class="card table-wrap"><table><thead><tr><th>Arquivo</th><th>Tipo</th><th>Chunks</th><th>Status</th><th>Data</th><th></th></tr></thead>
-    <tbody id="docs">${linhas()}</tbody></table></div>`;
-  const refresh = () => { $("#docs").innerHTML = linhas(); ligar(); };
-  const ligar = () => view.querySelectorAll("[data-del]").forEach(b => b.onclick = () => { DOCS.splice(DOCS.findIndex(d => d.id === +b.dataset.del), 1); refresh(); });
-  const receber = files => [...files].forEach(f => {
-    DOCS.push({ id: Date.now() + Math.random(), nome: f.name, tipo: f.name.split(".").pop().toUpperCase(), chunks: Math.max(1, Math.round(f.size / 800)), status: "Processando", data: new Date().toISOString().slice(0, 10) });
-    refresh();
-  });
-  $("#file").onchange = e => receber(e.target.files);
-  const drop = $("#drop");
-  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
-  drop.ondragleave = () => drop.classList.remove("over");
-  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); receber(e.dataTransfer.files); };
-  ligar();
+async function painelAdmin() {
+  const box = $("#painel-admin");
+  try {
+    const p = await api("/api/painel" + qEmpresa());
+    let ia = "";
+    if (ehMaster()) { const s = await api("/api/llm"); ia = s.configurada ? `<span class="badge ok">🤖 IA ativa · ${esc(s.modelo)}</span>` : `<a class="alerta demo" href="#/ia">⚠️ A IA ainda não está ligada. Configure a chave da API →</a>`; }
+    box.innerHTML = `<div class="card painel"><div class="painel-topo"><h2>Painel da empresa</h2>${ia}</div>
+      <div class="painel-nums"><div><b>${p.usuarios}</b><small>usuários ativos</small></div><div><b>${p.conteudos}</b><small>conteúdos</small></div><div><b>${p.cursos}</b><small>cursos</small></div><div><b>${p.perguntas_7d}</b><small>perguntas em 7 dias</small></div></div>
+      <div class="painel-acoes"><button class="btn" data-acao="arquivo">⬆ Enviar arquivo</button><button class="btn" data-acao="novo">+ Novo conteúdo</button><a class="btn" href="#/usuarios">👥 Cadastrar usuário</a></div></div>`;
+    box.querySelectorAll("[data-acao]").forEach(b => b.onclick = () => { acaoPendente = b.dataset.acao; location.hash = "#/biblioteca"; });
+  } catch { /* painel é opcional */ }
+}
+
+// ---------- Cursos ----------
+async function telaCursos() {
+  if (semEmpresa()) { view.innerHTML = cabecalho("Cursos", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaCursos); return; }
+  view.innerHTML = cabecalho("Cursos", "Aprenda no seu ritmo. Cada curso é montado com os procedimentos da sua empresa.") + `<div class="card">Carregando...</div>`;
+  ligarSeletorEmpresa(telaCursos);
+  let d; try { d = await Dados.cursos(); } catch (err) { return erroTela(err); }
+  const cats = [...new Set(d.itens.map(c => c.categoria))];
+  const acoes = d.pode_editar ? `<button class="btn" id="sinc" title="Cria cursos para categorias novas e inclui conteúdos novos">↻ Atualizar cursos</button>` : "";
+  view.innerHTML = cabecalho("Cursos", `${d.itens.length} cursos · ${d.resumo.licoes} lições · ${d.resumo.percentual}% concluído`, acoes) + (d.itens.length ? `
+    <div class="chips-linha"><button class="chip on" data-cat="">Todos</button>${cats.map(c => `<button class="chip" data-cat="${esc(c)}">${iconeDe(c)} ${esc(c)}</button>`).join("")}</div>
+    <div class="grid" id="lista-cursos"></div>` : `<div class="card vazio"><div class="vazio-ico">🎓</div><h2>Ainda não há cursos</h2><p class="muted">Cadastre conteúdos na Biblioteca para gerar cursos.</p></div>`);
+  ligarSeletorEmpresa(telaCursos);
+  const pintar = cat => {
+    $("#lista-cursos").innerHTML = d.itens.filter(c => !cat || c.categoria === cat).map(c => d.pode_editar
+      ? `<div class="curso-wrap">${cartaoCurso(c)}<div class="curso-admin"><button class="btn mini" data-ren="${c.id}">Renomear</button><button class="btn mini danger" data-del="${c.id}">Excluir</button></div></div>` : cartaoCurso(c)).join("");
+    view.querySelectorAll("[data-ren]").forEach(b => b.onclick = () => { const c = d.itens.find(x => x.id === +b.dataset.ren);
+      janela("Renomear curso", `<label class="field">Título<input id="c-tit" maxlength="200" required value="${esc(c.titulo)}"></label><label class="field">Descrição<input id="c-desc" maxlength="500" value="${esc(c.descricao)}"></label>`,
+        { aoSalvar: async () => { await api(`/api/cursos/${c.id}`, { method: "PUT", body: { titulo: $("#c-tit").value, descricao: $("#c-desc").value } }); telaCursos(); } }); });
+    view.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => { const c = d.itens.find(x => x.id === +b.dataset.del);
+      if (await confirmar(`Excluir o curso "${c.titulo}"? Os conteúdos continuam na Biblioteca; o progresso dos usuários neste curso será apagado.`)) { await api(`/api/cursos/${c.id}`, { method: "DELETE" }); telaCursos(); } });
+  };
+  if (d.itens.length) { pintar(""); view.querySelectorAll(".chips-linha .chip").forEach(b => b.onclick = () => { view.querySelectorAll(".chips-linha .chip").forEach(x => x.classList.toggle("on", x === b)); pintar(b.dataset.cat); }); }
+  if ($("#sinc")) $("#sinc").onclick = async () => { const r = await api("/api/cursos/sincronizar" + qEmpresa(), { method: "POST" }); janela("Cursos atualizados", `<p>${r.criados} curso(s) criado(s) e ${r.anexados} lição(ões) adicionada(s).</p>`); telaCursos(); };
+}
+
+async function telaCurso(id, licaoId) {
+  view.innerHTML = `<div class="card">Carregando...</div>`;
+  let c; try { c = await Dados.curso(id); } catch (err) { return erroTela(err); }
+  let atual = c.licoes.findIndex(l => l.conteudo_id === licaoId);
+  if (atual < 0) atual = Math.max(0, c.licoes.findIndex(l => !l.concluida));
+  const feitas = () => c.licoes.filter(l => l.concluida).length;
+
+  const desenhar = () => {
+    const l = c.licoes[atual], pct = Math.round(100 * feitas() / c.licoes.length), ultimo = atual === c.licoes.length - 1;
+    const respondida = l.acertou !== null;
+    view.innerHTML = `<a href="#/cursos" class="muted voltar">← Cursos</a>
+      <div class="curso-cab"><div><h1>${iconeDe(c.categoria)} ${esc(c.titulo)}</h1><p class="muted">${esc(c.descricao || "")}</p></div>${anel(pct)}</div>
+      <div class="aula-layout">
+        <nav class="card licoes" aria-label="Lições"><ol>${c.licoes.map((x, i) => `<li><button class="${i === atual ? "ativa" : ""} ${x.concluida ? "feita" : ""}" data-i="${i}"><span class="marca">${x.concluida ? "✓" : i + 1}</span><span>${esc(x.titulo)}</span></button></li>`).join("")}</ol></nav>
+        <div class="aula">
+          <article class="card">
+            <small class="muted">LIÇÃO ${atual + 1} DE ${c.licoes.length} · ~${l.minutos} MIN</small>
+            <h2>${esc(l.titulo)}</h2>
+            <div class="texto-aula">${md(l.texto)}</div>
+          </article>
+          ${pct === 100 && l.concluida && ultimo ? finalCurso() : ""}
+          ${l.quiz ? `<div class="card quiz"><small class="muted">VERIFIQUE O QUE APRENDEU</small><h3>${esc(l.quiz.pergunta)}</h3>
+              <div id="alt">${l.quiz.opcoes.map((o, i) => `<button class="opt-btn" data-o="${i}" ${respondida ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div>
+              <div id="retorno-quiz">${respondida ? `<p class="muted">Você já respondeu esta pergunta (${l.acertou ? "acertou ✓" : "errou"}).</p>` : ""}</div></div>` : ""}
+          <div class="aula-nav">
+            <button class="btn" id="ant" ${atual === 0 ? "disabled" : ""}>← Anterior</button>
+            ${!l.quiz && !l.concluida ? `<button class="btn primary" id="concluir">Concluir lição${ultimo ? "" : " e continuar"}</button>` : ""}
+            <button class="btn ${l.concluida || l.quiz ? "primary" : ""}" id="prox" ${ultimo ? "disabled" : ""}>Próxima →</button>
+          </div>
+        </div></div>`;
+    view.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { atual = +b.dataset.i; desenhar(); scrollTo(0, 0); });
+    $("#ant").onclick = () => { atual--; desenhar(); scrollTo(0, 0); };
+    $("#prox").onclick = () => { atual++; desenhar(); scrollTo(0, 0); };
+    if ($("#concluir")) $("#concluir").onclick = async () => { try { await Dados.concluir(c.id, l.conteudo_id); l.concluida = true; if (!ultimo) atual++; desenhar(); scrollTo(0, 0); } catch (err) { erroTela(err); } };
+    view.querySelectorAll("[data-o]").forEach(b => b.onclick = async () => {
+      view.querySelectorAll("[data-o]").forEach(x => x.disabled = true);
+      try {
+        const r = await Dados.responder(c.id, l.conteudo_id, +b.dataset.o);
+        l.concluida = true; l.acertou = r.correta;
+        view.querySelectorAll("[data-o]").forEach((x, i) => { if (i === r.indice_correto) x.classList.add("certa"); else if (x === b) x.classList.add("errada"); });
+        $("#retorno-quiz").innerHTML = r.correta ? `<p class="feedback ok">✅ Correto!</p>` : `<p class="feedback bad">Não foi dessa vez. A resposta certa é a destacada em verde.</p>`;
+        $("#prox").classList.add("primary");
+        const itemAtivo = view.querySelector(".licoes button.ativa");       // marca ✓ na lista sem redesenhar a tela
+        if (itemAtivo) { itemAtivo.classList.add("feita"); itemAtivo.querySelector(".marca").textContent = "✓"; }
+        if (feitas() === c.licoes.length) setTimeout(desenhar, 900);
+      } catch (err) { erroTela(err); }
+    });
+  };
+  const finalCurso = () => { const resp = c.licoes.filter(x => x.acertou !== null), ac = resp.filter(x => x.acertou).length;
+    return `<div class="card parabens"><div class="vazio-ico">🎉</div><h2>Curso concluído!</h2><p class="muted">Você completou as ${c.licoes.length} lições${resp.length ? ` e acertou ${ac} de ${resp.length} perguntas` : ""}.</p><a class="btn primary" href="#/cursos">Ver outros cursos</a></div>`; };
+  desenhar();
 }
 
 // ---------- Assistente (RAG + LLM) ----------
-const fmt = t => esc(t).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 async function telaChat() {
+  if (semEmpresa()) { view.innerHTML = cabecalho("Assistente", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaChat); return; }
   const u = estado.usuario;
-  const status = estado.demo ? `<span class="badge warn">Demonstração</span>`
-    : u.llm ? `<span class="badge ok">🤖 IA ativa · ${esc(u.modelo)}</span>` : `<span class="badge warn">🔎 Modo busca (LLM não configurada)</span>`;
-  view.innerHTML = `<div class="page-head"><div><h1>Assistente OutGPT</h1><p class="muted">${estado.demo ? "Respostas de exemplo." : "Respostas baseadas somente nos conteúdos da empresa, com fonte citada."} ${status}</p></div>${seletorEmpresa()}</div>
+  const status = estado.demo ? `<span class="badge warn">Demonstração · sem IA</span>` : u.llm ? `<span class="badge ok">🤖 IA ativa · ${esc(u.modelo)}</span>` : `<span class="badge warn">🔎 Só busca (IA não configurada)</span>`;
+  view.innerHTML = cabecalho("Assistente OutGPT", `Respostas baseadas só nos conteúdos da empresa, com fonte citada. ${status}`, `<button class="btn" id="nova">+ Nova conversa</button>`) + `
     <div class="card chat">
-      <div class="messages" id="msgs" aria-live="polite"><div class="msg bot">Olá! Sou o assistente de onboarding. Pergunte sobre os procedimentos da empresa.</div></div>
+      <div class="messages" id="msgs" aria-live="polite"></div>
       <div class="suggestions" id="sugestoes"></div>
       <form class="chat-input" id="chat-form"><input id="q" placeholder="Digite sua dúvida..." autocomplete="off" maxlength="1000" required><button class="btn primary">Enviar</button></form>
     </div>`;
   ligarSeletorEmpresa(telaChat);
   const msgs = $("#msgs");
   const add = (cls, html) => { const d = document.createElement("div"); d.className = "msg " + cls; d.innerHTML = html; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d; };
+  const boasVindas = () => add("bot", "Olá! Sou o assistente de onboarding. Pergunte sobre os procedimentos da empresa — por exemplo prazos, acessos, benefícios ou regras de segurança.");
+  boasVindas();
+  const mostrarFontes = fontes => fontes.map(f => `<button class="cite" data-fonte="${esc(f.conteudo_id)}" title="Abrir o conteúdo">📎 ${esc(f.codigo)} · ${esc(f.titulo)}</button>`).join("");
   const perguntar = async texto => {
     add("user", esc(texto));
-    const w = add("bot typing", estado.demo ? "Buscando nos manuais..." : "Consultando os conteúdos e gerando a resposta...");
-    if (estado.demo) {
-      setTimeout(() => {
-        const low = texto.toLowerCase(), r = RESPOSTAS.find(x => x.k.some(k => low.includes(k))) || SEM_RESPOSTA;
-        w.className = "msg bot";
-        w.innerHTML = esc(r.t) + (r.f.length ? `<div class="cites">${r.f.map(f => `<span class="cite">📎 ${esc(f)}</span>`).join("")}</div>` : "");
-        historico.unshift({ quando: new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }), p: texto, f: r.f.join(", ") || "—" });
-        msgs.scrollTop = msgs.scrollHeight;
-      }, 700);
-      return;
-    }
+    const w = add("bot typing", estado.demo ? "Buscando nos conteúdos..." : "Consultando os conteúdos e preparando a resposta...");
     try {
-      const r = await api("/api/chat", { method: "POST", body: { pergunta: texto, empresa_id: estado.empresaId } });
+      const r = await Dados.chat(texto, conversa);
       w.className = "msg bot";
-      const fontes = r.fontes.map(f => `<span class="cite" title="similaridade ${f.similaridade}">📎 ${esc(f.codigo)} · ${esc(f.titulo)}</span>`).join("");
-      const selo = r.gerado_por_ia ? `<span class="selo">🤖 Gerado por IA a partir dos conteúdos</span>` : r.encontrado ? `<span class="selo">🔎 Trecho do manual</span>` : "";
-      w.innerHTML = fmt(r.resposta) + (fontes ? `<div class="cites">${fontes}</div>` : "") + (selo ? `<div class="cites">${selo}</div>` : "")
+      const selo = r.gerado_por_ia ? `<span class="selo">🤖 Resposta gerada por IA a partir dos conteúdos</span>` : r.encontrado ? `<span class="selo">🔎 Trecho do manual${estado.demo ? " (demonstração)" : ""}</span>` : "";
+      w.innerHTML = md(r.resposta) + (r.fontes.length ? `<div class="cites">${mostrarFontes(r.fontes)}</div>` : "") + (selo ? `<div class="cites">${selo}</div>` : "")
         + (r.aviso ? `<div class="nota">ℹ️ ${esc(r.aviso)}</div>` : "")
-        + (r.pii_mascaradas.length ? `<div class="nota">🔒 Dados sensíveis mascarados antes da consulta: ${esc(r.pii_mascaradas.join(", "))}</div>` : "");
+        + (r.pii_mascaradas?.length ? `<div class="nota">🔒 Dados sensíveis mascarados antes da consulta: ${esc(r.pii_mascaradas.join(", "))}</div>` : "");
+      w.querySelectorAll("[data-fonte]").forEach(b => b.onclick = async () => { try { const c = await Dados.conteudo(+b.dataset.fonte); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}</p>${md(c.texto)}`, { larga: true }); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
+      if (r.encontrado) { conversa.push({ pergunta: texto, resposta: r.resposta }); conversa = conversa.slice(-3); }
     } catch (err) { if (err.status === 401) return; w.className = "msg bot"; w.innerHTML = `⚠️ ${esc(err.message)}`; }
     msgs.scrollTop = msgs.scrollHeight;
   };
-  $("#chat-form").onsubmit = e => { e.preventDefault(); const q = $("#q"); const t = q.value.trim(); if (t) perguntar(t); q.value = ""; };
-  let sugestoes = ["Como resolvo erro de VPN?", "Qual o SLA de prioridade alta?", "Como redefinir uma senha?", "Quando escalonar para o N2?"];
-  if (!estado.demo) {
-    try { sugestoes = (await api("/api/conteudos" + qEmpresa())).itens.map(c => c.pergunta_exemplo).filter(Boolean).slice(0, 4); } catch { sugestoes = []; }
-  }
-  $("#sugestoes").innerHTML = sugestoes.map(s => `<button class="chip">${esc(s)}</button>`).join("");
-  view.querySelectorAll(".chip").forEach(c => c.onclick = () => perguntar(c.textContent));
+  $("#chat-form").onsubmit = e => { e.preventDefault(); const q = $("#q"), t = q.value.trim(); if (t) perguntar(t); q.value = ""; };
+  $("#nova").onclick = () => { conversa = []; msgs.innerHTML = ""; boasVindas(); };
+  Dados.sugestoes().then(d => { $("#sugestoes").innerHTML = d.itens.slice(0, 4).map(s => `<button class="chip">${esc(s)}</button>`).join(""); view.querySelectorAll("#sugestoes .chip").forEach(c => c.onclick = () => perguntar(c.textContent)); }).catch(() => {});
   if (pendente) { const p = pendente; pendente = null; perguntar(p); }
 }
 
 // ---------- Histórico ----------
 async function telaHistorico() {
-  const cab = `<div class="page-head"><div><h1>Histórico de dúvidas</h1><p class="muted">${estado.demo || !ehAdmin() ? "Suas perguntas ao assistente." : "Perguntas feitas na empresa (gravadas já anonimizadas)."}</p></div>${seletorEmpresa()}</div>`;
-  if (estado.demo) {
-    view.innerHTML = cab + `<div class="card table-wrap"><table><thead><tr><th>Quando</th><th>Pergunta</th><th>Fonte</th></tr></thead><tbody>${historico.map(h => `<tr><td>${esc(h.quando)}</td><td>${esc(h.p)}</td><td>${esc(h.f)}</td></tr>`).join("")}</tbody></table></div>`;
-    return;
-  }
-  view.innerHTML = cab + `<div class="card" id="hist">Carregando...</div>`;
+  if (estado.demo) { view.innerHTML = cabecalho("Histórico de dúvidas", "Disponível quando o servidor está ativo.") + `<div class="card vazio"><div class="vazio-ico">🕘</div><p class="muted">O histórico das suas perguntas é guardado no banco de dados da empresa.</p></div>`; return; }
+  if (semEmpresa()) { view.innerHTML = cabecalho("Histórico", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaHistorico); return; }
+  view.innerHTML = cabecalho("Histórico de dúvidas", ehAdmin() ? "Perguntas feitas na empresa (gravadas já anonimizadas)." : "Suas perguntas ao assistente.") + `<div class="card" id="hist">Carregando...</div>`;
   ligarSeletorEmpresa(telaHistorico);
   try {
     const d = await api("/api/historico" + qEmpresa());
     $("#hist").className = "card table-wrap";
     $("#hist").innerHTML = d.itens.length ? `<table><thead><tr><th>Quando</th>${ehAdmin() ? "<th>Usuário</th>" : ""}<th>Pergunta</th><th>Fontes</th><th></th></tr></thead><tbody>${d.itens.map(h =>
       `<tr><td>${quando(h.criado_em)}</td>${ehAdmin() ? `<td>${esc(h.usuario || "—")}</td>` : ""}<td title="${esc(h.resposta)}">${esc(h.pergunta)}</td><td>${esc(h.fontes.map(f => f.codigo).join(", ") || "—")}</td><td>${h.gerado_por_ia ? '<span class="badge">IA</span>' : ""}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">Nenhuma pergunta ainda.</p>`;
-  } catch (err) { if (err.status !== 401) erroTela(err); }
+  } catch (err) { erroTela(err); }
 }
 
-// ---------- Conteúdos (banco da empresa) ----------
-async function telaConteudos() {
-  const cab = (acoes = "") => `<div class="page-head"><div><h1>Conteúdos</h1><p class="muted">Base de conhecimento usada pelo assistente e pelas trilhas.</p></div><div class="acoes">${seletorEmpresa()}${acoes}</div></div>`;
-  if (ehMaster() && !estado.empresaId) { view.innerHTML = cab() + `<div class="card"><p class="muted">Crie uma empresa no menu <a href="#/empresas">Empresas</a> para começar a cadastrar conteúdos.</p></div>`; return; }
-  view.innerHTML = cab() + `<div class="card">Carregando...</div>`;
-  ligarSeletorEmpresa(telaConteudos);
-  let d;
-  try { d = await api("/api/conteudos" + qEmpresa()); } catch (err) { if (err.status !== 401) erroTela(err); return; }
-  view.innerHTML = cab(d.pode_editar ? `<button class="btn" id="imp">⬆ Importar CSV</button><button class="btn primary" id="novo">+ Novo conteúdo</button>` : "") + `
+// ---------- Biblioteca (conteúdos da empresa) ----------
+async function telaBiblioteca() {
+  if (semEmpresa()) { view.innerHTML = cabecalho("Biblioteca", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaBiblioteca); return; }
+  view.innerHTML = cabecalho("Biblioteca", "Conteúdos que alimentam o assistente e os cursos.") + `<div class="card">Carregando...</div>`;
+  ligarSeletorEmpresa(telaBiblioteca);
+  let d; try { d = await Dados.conteudos(); } catch (err) { return erroTela(err); }
+  const acoes = d.pode_editar ? `<button class="btn" id="imp">⬆ Importar CSV</button><button class="btn" id="arq">📄 Enviar arquivo</button><button class="btn primary" id="novo">+ Novo conteúdo</button>` : "";
+  view.innerHTML = cabecalho("Biblioteca", `${d.total} conteúdo(s) disponíveis para você.`, acoes) + `
     <div class="card"><div class="row2"><input id="c-q" placeholder="Filtrar por título, código ou texto..." aria-label="Filtrar conteúdos">
       <select id="c-cat"><option value="">Todas as categorias</option>${d.categorias.map(c => `<option>${esc(c)}</option>`).join("")}</select></div>
-      <p class="muted" id="c-total"></p><div class="table-wrap"><table><thead><tr><th>Código</th><th>Título</th><th>Categoria</th><th>Visível para</th><th>PII</th><th></th></tr></thead><tbody id="c-body"></tbody></table></div></div>`;
-  ligarSeletorEmpresa(telaConteudos);
+      <p class="muted" id="c-total"></p><div class="table-wrap"><table><thead><tr><th>Código</th><th>Título</th><th>Categoria</th><th>Visível para</th><th></th></tr></thead><tbody id="c-body"></tbody></table></div></div>`;
+  ligarSeletorEmpresa(telaBiblioteca);
   const pintar = () => {
     const q = $("#c-q").value.toLowerCase(), cat = $("#c-cat").value;
-    const itens = d.itens.filter(c => (!cat || c.categoria === cat) && (c.codigo + " " + c.titulo + " " + c.texto).toLowerCase().includes(q));
+    const itens = d.itens.filter(c => (!cat || c.categoria === cat) && `${c.codigo} ${c.titulo} ${c.resumo}`.toLowerCase().includes(q));
     $("#c-total").textContent = `${itens.length} de ${d.total} conteúdo(s)`;
-    $("#c-body").innerHTML = itens.map(c => `<tr><td>${esc(c.codigo)}</td><td>${esc(c.titulo)}</td><td>${esc(c.categoria)}</td>
+    $("#c-body").innerHTML = itens.map(c => `<tr><td>${esc(c.codigo)}</td><td>${c.arquivo_nome ? "📄 " : ""}${esc(c.titulo)}${c.contem_pii ? ' <span class="badge warn">PII</span>' : ""}</td><td>${esc(c.categoria)}</td>
       <td><span class="badge ${c.visibilidade === "todos" ? "ok" : ""}">${c.visibilidade === "todos" ? "Todos (inclui externos)" : "Somente internos"}</span></td>
-      <td>${c.contem_pii ? '<span class="badge warn">Sim</span>' : "—"}</td>
-      <td class="acoes-linha"><button class="btn" data-ver="${c.id}">Ver</button>${d.pode_editar ? `<button class="btn" data-edit="${c.id}">Editar</button><button class="btn danger" data-del="${c.id}">Excluir</button>` : ""}</td></tr>`).join("");
-    view.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => { const c = d.itens.find(x => x.id === +b.dataset.ver); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}</p><p style="white-space:pre-wrap">${esc(c.texto)}</p>`); });
-    view.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => formConteudo(d.itens.find(x => x.id === +b.dataset.edit), telaConteudos));
+      <td class="acoes-linha"><button class="btn mini" data-ver="${c.id}">Ver</button>${d.pode_editar ? `<button class="btn mini" data-edit="${c.id}">Editar</button><button class="btn mini danger" data-del="${c.id}">Excluir</button>` : ""}</td></tr>`).join("");
+    view.querySelectorAll("[data-ver]").forEach(b => b.onclick = async () => { try { const c = await Dados.conteudo(+b.dataset.ver); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}${c.arquivo_nome ? " · arquivo " + esc(c.arquivo_nome) : ""}</p>${md(c.texto)}`, { larga: true }); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
+    view.querySelectorAll("[data-edit]").forEach(b => b.onclick = async () => formConteudo(await api(`/api/conteudos/${b.dataset.edit}`), d.categorias));
     view.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
       const c = d.itens.find(x => x.id === +b.dataset.del);
       if (!(await confirmar(`Excluir "${c.titulo}"? Esta ação não pode ser desfeita.`))) return;
-      try { await api(`/api/conteudos/${c.id}`, { method: "DELETE" }); telaConteudos(); } catch (err) { janela("Erro", `<p>${esc(err.message)}</p>`); }
+      try { await api(`/api/conteudos/${c.id}`, { method: "DELETE" }); telaBiblioteca(); } catch (err) { janela("Erro", `<p>${esc(err.message)}</p>`); }
     });
   };
   $("#c-q").oninput = pintar; $("#c-cat").onchange = pintar; pintar();
-  if ($("#novo")) $("#novo").onclick = () => formConteudo(null, telaConteudos);
-  if ($("#imp")) $("#imp").onclick = () => formImportar(telaConteudos);
+  if ($("#novo")) $("#novo").onclick = () => formConteudo(null, d.categorias);
+  if ($("#arq")) $("#arq").onclick = () => formArquivo(d.categorias);
+  if ($("#imp")) $("#imp").onclick = () => formImportar();
+  if (acaoPendente && d.pode_editar) { const a = acaoPendente; acaoPendente = null; (a === "arquivo" ? formArquivo(d.categorias) : formConteudo(null, d.categorias)); }
 }
 
-function formConteudo(c, depois) {
+const datalistCats = cats => `<datalist id="lista-cats">${(cats || []).map(c => `<option value="${esc(c)}">`).join("")}</datalist>`;
+function formConteudo(c, cats) {
   const novo = !c;
   janela(novo ? "Novo conteúdo" : "Editar conteúdo", `
-    ${novo ? `<label class="field">Código (opcional)<input id="f-codigo" maxlength="60" placeholder="Ex.: SOP_RH_30"></label>` : `<p class="muted">Código: ${esc(c.codigo)}</p>`}
+    ${novo ? `<label class="field">Código (opcional)<input id="f-codigo" maxlength="60" placeholder="Ex.: SOP_RH_30"></label>` : `<p class="muted">Código: ${esc(c.codigo)}${c.arquivo_nome ? " · arquivo " + esc(c.arquivo_nome) : ""}</p>`}
     <label class="field">Título *<input id="f-titulo" maxlength="200" required value="${esc(c?.titulo)}"></label>
-    <div class="row2"><label class="field">Categoria<input id="f-cat" maxlength="100" value="${esc(c?.categoria || "Geral")}"></label>
-      <label class="field">Visível para<select id="f-vis"><option value="internos" ${c?.visibilidade !== "todos" ? "selected" : ""}>Somente internos (admin, funcionários e colaboradores internos)</option>
+    <div class="row2"><label class="field">Categoria (vira um curso)<input id="f-cat" list="lista-cats" maxlength="100" value="${esc(c?.categoria || "Geral")}"></label>${datalistCats(cats)}
+      <label class="field">Visível para<select id="f-vis"><option value="internos" ${c?.visibilidade !== "todos" ? "selected" : ""}>Somente internos</option>
         <option value="todos" ${c?.visibilidade === "todos" ? "selected" : ""}>Todos (inclui colaboradores externos)</option></select></label></div>
-    <label class="field">Conteúdo *<textarea id="f-texto" maxlength="20000" rows="8" required>${esc(c?.texto)}</textarea></label>
-    <label class="field">Pergunta de exemplo (melhora a busca)<input id="f-perg" maxlength="500" value="${esc(c?.pergunta_exemplo)}"></label>
+    <label class="field">Conteúdo *<textarea id="f-texto" maxlength="400000" rows="9" required>${esc(c?.texto)}</textarea></label>
+    <label class="field">Pergunta de exemplo (melhora a busca e gera a pergunta de verificação do curso)<input id="f-perg" maxlength="500" value="${esc(c?.pergunta_exemplo)}"></label>
+    <label class="field">Resposta de exemplo (resposta correta da pergunta acima)<textarea id="f-resp" maxlength="2000" rows="3">${esc(c?.resposta_exemplo)}</textarea></label>
     <label class="opt"><input type="checkbox" id="f-pii" ${c?.contem_pii ? "checked" : ""}><span>Este conteúdo trata de dados pessoais (PII)</span></label>`,
-    { aoSalvar: async () => {
-      const corpo = { titulo: $("#f-titulo").value, categoria: $("#f-cat").value, texto: $("#f-texto").value, pergunta_exemplo: $("#f-perg").value, visibilidade: $("#f-vis").value, contem_pii: $("#f-pii").checked };
+    { larga: true, aoSalvar: async () => {
+      const corpo = { titulo: $("#f-titulo").value, categoria: $("#f-cat").value, texto: $("#f-texto").value, pergunta_exemplo: $("#f-perg").value, resposta_exemplo: $("#f-resp").value, visibilidade: $("#f-vis").value, contem_pii: $("#f-pii").checked };
       if (novo) await api("/api/conteudos", { method: "POST", body: { ...corpo, codigo: $("#f-codigo").value, empresa_id: estado.empresaId } });
       else await api(`/api/conteudos/${c.id}`, { method: "PUT", body: corpo });
-      depois();
+      telaBiblioteca();
     } });
 }
 
-function formImportar(depois) {
+function formArquivo(cats) {
+  janela("Enviar arquivo", `
+    <p class="muted">O texto do arquivo é dividido em trechos e indexado: o assistente passa a responder com base nele. Formatos: <strong>.txt, .md, .pdf, .docx</strong> (até 8 MB; PDF precisa ter texto selecionável).</p>
+    <label class="field">Arquivo *<input type="file" id="f-arq" accept=".txt,.md,.pdf,.docx" required></label>
+    <label class="field">Título (opcional; padrão: nome do arquivo)<input id="f-titulo" maxlength="200"></label>
+    <div class="row2"><label class="field">Categoria<input id="f-cat" list="lista-cats" maxlength="100" value="Documentos"></label>${datalistCats(cats)}
+      <label class="field">Visível para<select id="f-vis"><option value="internos">Somente internos</option><option value="todos">Todos (inclui externos)</option></select></label></div>`,
+    { salvar: "Enviar e indexar", aoSalvar: async d => {
+      const arq = $("#f-arq").files[0]; if (!arq) throw new Error("Escolha um arquivo.");
+      if (arq.size > 8_000_000) throw new Error("O arquivo passa de 8 MB.");
+      $("#j-salvar", d).textContent = "Processando...";
+      const b64 = await new Promise((ok, falha) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1]); r.onerror = falha; r.readAsDataURL(arq); });
+      const r = await api("/api/conteudos/arquivo", { method: "POST", body: { nome: arq.name, dados: b64, titulo: $("#f-titulo").value, categoria: $("#f-cat").value, visibilidade: $("#f-vis").value, empresa_id: estado.empresaId } });
+      janela("Arquivo indexado", `<p>${r.caracteres.toLocaleString("pt-BR")} caracteres divididos em <strong>${r.trechos}</strong> trecho(s). O assistente já pode responder com base neste arquivo.</p>`);
+      telaBiblioteca();
+    } });
+}
+
+function formImportar() {
   janela("Importar conteúdos de um CSV", `
-    <p class="muted">Colunas: <code>id, categoria, procedimento_titulo, contexto_documental, pergunta_utilizador, resposta_esperada, contem_pii</code>. Conteúdos com o mesmo id são atualizados.</p>
+    <p class="muted">Colunas: <code>id, categoria, procedimento_titulo, contexto_documental, pergunta_utilizador, resposta_esperada, contem_pii</code>. Conteúdos com o mesmo id são atualizados. Cada categoria vira um curso.</p>
     <label class="field">Arquivo CSV<input type="file" id="f-arq" accept=".csv,text/csv" required></label>
     <label class="field">Visível para<select id="f-vis"><option value="internos">Somente internos</option><option value="todos">Todos (inclui externos)</option></select></label>`,
-    { salvar: "Importar", aoSalvar: async () => {
+    { salvar: "Importar", aoSalvar: async d => {
       const arq = $("#f-arq").files[0]; if (!arq) throw new Error("Escolha um arquivo.");
+      $("#j-salvar", d).textContent = "Importando...";
       const r = await api("/api/conteudos/importar", { method: "POST", body: { csv: await arq.text(), visibilidade: $("#f-vis").value, empresa_id: estado.empresaId } });
-      janela("Importação concluída", `<p>${r.importados} conteúdo(s) importados e indexados.</p>`);
-      depois();
+      janela("Importação concluída", `<p>${r.importados} conteúdo(s) importados, indexados e organizados em cursos.</p>`);
+      telaBiblioteca();
     } });
 }
 
 // ---------- Usuários ----------
 async function telaUsuarios() {
-  const cab = (acoes = "") => `<div class="page-head"><div><h1>Usuários</h1><p class="muted">Logins de funcionários e colaboradores.</p></div><div class="acoes">${seletorEmpresa()}${acoes}</div></div>`;
-  if (ehMaster() && !estado.empresaId) { view.innerHTML = cab() + `<div class="card"><p class="muted">Crie uma empresa no menu <a href="#/empresas">Empresas</a> primeiro.</p></div>`; return; }
-  view.innerHTML = cab() + `<div class="card">Carregando...</div>`;
+  if (semEmpresa()) { view.innerHTML = cabecalho("Usuários", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaUsuarios); return; }
+  view.innerHTML = cabecalho("Usuários", "Logins de funcionários e colaboradores.") + `<div class="card">Carregando...</div>`;
   ligarSeletorEmpresa(telaUsuarios);
-  let d;
-  try { d = await api("/api/usuarios" + qEmpresa()); } catch (err) { if (err.status !== 401) erroTela(err); return; }
-  view.innerHTML = cab(`<button class="btn primary" id="novo">+ Novo usuário</button>`) + `<div class="card table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Último acesso</th><th>Status</th><th></th></tr></thead><tbody>${d.itens.map(x => `
+  let d; try { d = await api("/api/usuarios" + qEmpresa()); } catch (err) { return erroTela(err); }
+  view.innerHTML = cabecalho("Usuários", `${d.itens.length} usuário(s).`, `<button class="btn primary" id="novo">+ Novo usuário</button>`) + `<div class="card table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Último acesso</th><th>Status</th><th></th></tr></thead><tbody>${d.itens.map(x => `
     <tr><td>${esc(x.nome)}</td><td>${esc(x.email)}</td><td>${esc(ROTULOS[x.tipo])}</td><td>${quando(x.ultimo_login)}</td>
     <td><span class="badge ${x.ativo ? "ok" : "warn"}">${x.ativo ? "Ativo" : "Desativado"}</span></td>
-    <td class="acoes-linha">${x.tipo === "master" ? "" : `<button class="btn" data-edit="${x.id}">Editar</button>`}</td></tr>`).join("")}</tbody></table></div>`;
+    <td class="acoes-linha">${x.tipo === "master" ? "" : `<button class="btn mini" data-edit="${x.id}">Editar</button>`}</td></tr>`).join("")}</tbody></table></div>`;
   ligarSeletorEmpresa(telaUsuarios);
   const tipos = ehMaster() ? ["admin", "funcionario", "colaborador_interno", "colaborador_externo"] : ["funcionario", "colaborador_interno", "colaborador_externo"];
   const opcoes = sel => tipos.map(t => `<option value="${t}" ${t === sel ? "selected" : ""}>${ROTULOS[t]}</option>`).join("");
-  $("#novo").onclick = () => janela("Novo usuário", `
+  const abrirNovo = () => janela("Novo usuário", `
     <label class="field">Nome *<input id="u-nome" maxlength="120" required></label>
     <label class="field">E-mail (será o login) *<input id="u-email" type="email" maxlength="160" required></label>
     <label class="field">Senha inicial * (mín. 10 caracteres, com letras e números)<input id="u-senha" type="password" autocomplete="new-password" required></label>
@@ -466,6 +558,7 @@ async function telaUsuarios() {
       await api("/api/usuarios", { method: "POST", body: { nome: $("#u-nome").value, email: $("#u-email").value, senha: $("#u-senha").value, tipo: $("#u-tipo").value, empresa_id: estado.empresaId } });
       telaUsuarios();
     } });
+  $("#novo").onclick = abrirNovo;
   view.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
     const x = d.itens.find(i => i.id === +b.dataset.edit);
     const podeTipo = tipos.includes(x.tipo);
@@ -483,37 +576,60 @@ async function telaUsuarios() {
         telaUsuarios();
       } });
   });
+  if (acaoPendente === "usuario") { acaoPendente = null; abrirNovo(); }
 }
 
 // ---------- Empresas (somente master) ----------
 async function telaEmpresas() {
-  view.innerHTML = `<div class="page-head"><div><h1>Empresas</h1><p class="muted">Clientes da plataforma. Cada empresa tem seus próprios usuários e conteúdos, isolados das demais.</p></div><div class="acoes"><button class="btn primary" id="novo">+ Nova empresa</button></div></div><div class="card" id="emp">Carregando...</div>`;
+  view.innerHTML = cabecalho("Empresas", "Clientes da plataforma. Cada empresa tem seus próprios usuários, conteúdos e cursos, isolados das demais.", `<button class="btn primary" id="novo">+ Nova empresa</button>`).replace(seletorEmpresa(), "") + `<div class="card" id="emp">Carregando...</div>`;
   $("#novo").onclick = () => janela("Nova empresa", `<label class="field">Nome *<input id="e-nome" maxlength="120" required></label>`,
-    { salvar: "Criar", aoSalvar: async () => { await api("/api/empresas", { method: "POST", body: { nome: $("#e-nome").value } }); await carregarEmpresas(); telaEmpresas(); } });
+    { salvar: "Criar", aoSalvar: async () => { const r = await api("/api/empresas", { method: "POST", body: { nome: $("#e-nome").value } }); estado.empresaId = r.id; await carregarEmpresas(); telaEmpresas(); } });
   try {
     const d = await api("/api/empresas"); estado.empresas = d.itens;
     $("#emp").className = "card table-wrap";
     $("#emp").innerHTML = d.itens.length ? `<table><thead><tr><th>Empresa</th><th>Usuários</th><th>Conteúdos</th><th>Criada em</th><th>Status</th><th></th></tr></thead><tbody>${d.itens.map(e => `
       <tr><td>${esc(e.nome)}</td><td>${e.usuarios}</td><td>${e.conteudos}</td><td>${quando(e.criado_em)}</td>
       <td><span class="badge ${e.ativa ? "ok" : "warn"}">${e.ativa ? "Ativa" : "Desativada"}</span></td>
-      <td class="acoes-linha"><button class="btn" data-edit="${e.id}">Editar</button></td></tr>`).join("")}</tbody></table>` : `<p class="muted">Nenhuma empresa ainda. Crie a primeira para começar.</p>`;
+      <td class="acoes-linha"><button class="btn mini" data-edit="${e.id}">Editar</button></td></tr>`).join("")}</tbody></table>` : `<p class="muted">Nenhuma empresa ainda. Crie a primeira para começar.</p>`;
     view.querySelectorAll("[data-edit]").forEach(b => b.onclick = () => {
       const e = d.itens.find(i => i.id === +b.dataset.edit);
       janela("Editar empresa", `<label class="field">Nome<input id="e-nome" maxlength="120" required value="${esc(e.nome)}"></label>
         <label class="opt"><input type="checkbox" id="e-ativa" ${e.ativa ? "checked" : ""}><span>Empresa ativa (desativar bloqueia o login de todos os seus usuários)</span></label>`,
         { aoSalvar: async () => { await api(`/api/empresas/${e.id}`, { method: "PUT", body: { nome: $("#e-nome").value, ativa: $("#e-ativa").checked } }); await carregarEmpresas(); telaEmpresas(); } });
     });
-  } catch (err) { if (err.status !== 401) erroTela(err); }
+  } catch (err) { erroTela(err); }
+}
+
+// ---------- Inteligência artificial (somente master) ----------
+async function telaIA() {
+  view.innerHTML = cabecalho("Inteligência artificial", "Liga o assistente à LLM (Claude) para respostas claras sobre os procedimentos.").replace(seletorEmpresa(), "") + `<div class="card" id="ia">Carregando...</div>`;
+  let s; try { s = await api("/api/llm"); } catch (err) { return erroTela(err); }
+  const pintar = () => {
+    $("#ia").innerHTML = `
+      <div class="ia-status"><span class="badge ${s.configurada ? "ok" : "warn"}">${s.configurada ? "🤖 IA ligada" : "⚠️ IA desligada"}</span><span class="muted">Modelo: <strong>${esc(s.modelo)}</strong> · esforço: ${esc(s.esforco)}</span></div>
+      <p class="muted">${s.configurada ? "O assistente usa a LLM para escrever as respostas a partir dos trechos recuperados. Se a chamada falhar, ele mostra o trecho do manual no lugar." : "Sem a chave da API, o assistente só mostra o trecho do manual encontrado, sem resposta escrita pela IA."}</p>
+      ${s.configurada ? `<button class="btn" id="testar">Testar conexão</button><div id="res-teste"></div><hr>` : ""}
+      <h3>${s.configurada ? "Trocar a chave da API" : "Ligar a IA"}</h3>
+      <ol class="passos"><li>Crie uma chave em <strong>console.anthropic.com</strong> (menu API Keys).</li><li>Cole a chave abaixo. Ela é testada e guardada só neste servidor (arquivo <code>backend/.env</code>); nunca aparece de novo na tela.</li></ol>
+      <form id="form-chave" class="linha-form"><input type="password" id="chave" placeholder="sk-ant-..." autocomplete="off" required><button class="btn primary" id="salvar-chave">Testar e salvar</button></form><div id="res-chave"></div>`;
+    if ($("#testar")) $("#testar").onclick = async () => { $("#res-teste").innerHTML = `<p class="muted">Testando...</p>`; try { const r = await api("/api/llm/testar", { method: "POST" }); $("#res-teste").innerHTML = `<p class="alerta ${r.ok ? "ok" : "bad"}">${esc(r.mensagem)}</p>`; } catch (e) { $("#res-teste").innerHTML = `<p class="alerta bad">${esc(e.message)}</p>`; } };
+    $("#form-chave").onsubmit = async e => {
+      e.preventDefault(); const btn = $("#salvar-chave"); btn.disabled = true; $("#res-chave").innerHTML = `<p class="muted">Validando a chave com uma chamada real...</p>`;
+      try { const r = await api("/api/llm/chave", { method: "POST", body: { chave: $("#chave").value } }); $("#chave").value = ""; estado.usuario.llm = true; s.configurada = true; pintar(); $("#res-chave").innerHTML = `<p class="alerta ok">✅ ${esc(r.mensagem)} A IA já está funcionando no assistente.</p>`; }
+      catch (err) { $("#res-chave").innerHTML = `<p class="alerta bad">${esc(err.message)}</p>`; btn.disabled = false; }
+    };
+  };
+  pintar();
 }
 
 // ---------- Sobre ----------
 function telaSobre() {
-  view.innerHTML = `<div class="page-head"><div><h1>Sobre o projeto</h1><p class="muted">Fatec Cotia • Ciência de Dados • Processamento de Linguagem Natural</p></div></div>
+  view.innerHTML = cabecalho("Sobre o projeto", "Fatec Cotia • Ciência de Dados • Processamento de Linguagem Natural") + `
     <div class="card"><h2>OutGPT Enterprise</h2>
-      <p>Plataforma que usa IA Generativa com RAG para transformar os manuais e procedimentos de cada empresa em trilhas de capacitação e um assistente interativo, acelerando o onboarding e reduzindo a perda de conhecimento tácito (brain drain).</p></div>
+      <p>Plataforma que usa IA generativa com RAG para transformar os manuais e procedimentos de cada empresa em cursos e em um assistente que responde dúvidas com a fonte citada, acelerando o onboarding e reduzindo a perda de conhecimento tácito (brain drain).</p></div>
     <div class="card"><h2>Equipe</h2><ul><li>Marcelo Henrique do Carmo Ramos</li><li>Victor Henrique Duarte Cardoso</li></ul></div>
-    <div class="card"><h2>Stack</h2>
-      <p><span class="badge">Python</span> <span class="badge">Claude (LLM)</span> <span class="badge">RAG</span> <span class="badge">ChromaDB</span> <span class="badge">SQLite</span> <span class="badge">HTML/CSS/JS</span></p></div>
+    <div class="card"><h2>Tecnologia</h2>
+      <p><span class="badge">Python</span> <span class="badge">Claude (LLM)</span> <span class="badge">RAG híbrido</span> <span class="badge">ChromaDB</span> <span class="badge">SQLite</span> <span class="badge">HTML/CSS/JS</span></p></div>
     <div class="card"><h2>Pesquisa com especialistas</h2>
       <p class="muted">Ajude o projeto: responda à pesquisa sobre a importância da ferramenta para empresas e instituições de ensino.</p>
       <a class="btn" href="pesquisa.html">Abrir a pesquisa</a></div>`;

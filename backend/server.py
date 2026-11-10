@@ -1,10 +1,12 @@
-﻿"""Servidor do OutGPT Enterprise (somente biblioteca padrão + SDK da LLM).
+"""Servidor do OutGPT Enterprise (somente biblioteca padrão + SDK da LLM).
 
 Uso:  python server.py   ->  http://localhost:8000
 
 Perfis: master (dono do sistema) > admin (da empresa) > funcionario / colaborador_interno > colaborador_externo.
 Toda rota (exceto login, pesquisa pública e arquivos estáticos) exige sessão válida (cookie HttpOnly).
 """
+import base64
+import binascii
 import json
 import os
 import re
@@ -16,6 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import auth
+import cursos
 import db
 import llm
 import pesquisa
@@ -25,7 +28,8 @@ BASE = Path(__file__).parent
 FRONT = BASE.parent / "docs"
 COOKIE = "outgpt_sessao"
 MAX_CORPO = 2_000_000
-LIMIAR_SIMILARIDADE = float(os.environ.get("OUTGPT_LIMIAR", "0.50"))   # abaixo disso o assistente recusa
+MAX_ARQUIVO = 8_000_000            # tamanho máximo de um arquivo enviado (bytes)
+PISO_VETOR = float(os.environ["OUTGPT_LIMIAR"]) if os.environ.get("OUTGPT_LIMIAR") else None   # piso de similaridade (padrão: 0,45 com LLM / 0,50 sem)
 CSP_APP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"
 CSP_PESQUISA = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
 SITE = {  # lista fixa: nenhum outro arquivo é exposto
@@ -69,9 +73,9 @@ def limitar(chave, maximo, janela_s, registrar=True):
 ROTAS = []   # (metodo, regex, função, acesso)  acesso: None = público | "auth" | tupla de tipos
 
 
-def rota(metodo, caminho, acesso="auth"):
+def rota(metodo, caminho, acesso="auth", limite=MAX_CORPO):
     def deco(f):
-        ROTAS.append((metodo, re.compile("^" + caminho + "$"), f, acesso))
+        ROTAS.append((metodo, re.compile("^" + caminho + "$"), f, acesso, limite))
         return f
     return deco
 
@@ -158,9 +162,23 @@ def h_senha(c):
 
 
 # ----- assistente (RAG + LLM) -----
+SEM_RESPOSTA = ("Não encontrei essa informação nos conteúdos disponíveis para você. "
+                "Para evitar respostas inventadas, consulte seu gestor ou abra um chamado.")
+MARCADORES_PII = re.compile(r"\[(?:EMAIL|CPF|CNPJ|TELEFONE)\]")
+
+
 def _resposta_de_busca(achados):
     top = achados[0]
-    return f"Com base em «{top['titulo']}» ({top['codigo']}): {top['texto']}"
+    return f"Com base em «{top['titulo']}» ({top['codigo']}):\n\n" + "\n\n".join(top["trechos"])
+
+
+def _historico_recebido(corpo):
+    """Últimas trocas da conversa enviadas pelo navegador (perguntas anonimizadas; tudo tratado como dado não confiável)."""
+    out = []
+    for h in (corpo.get("historico") or [])[-llm.MAX_HISTORICO:]:
+        if isinstance(h, dict) and isinstance(h.get("pergunta"), str) and isinstance(h.get("resposta"), str):
+            out.append({"pergunta": rag.anonimizar(h["pergunta"][:1000])[0], "resposta": h["resposta"][:1500]})
+    return out
 
 
 @rota("POST", "/api/chat")
@@ -168,28 +186,35 @@ def h_chat(c):
     limitar(f"chat:{c.usuario['id']}", 20, 60)
     pergunta = texto(c.corpo.get("pergunta"), "pergunta", 1000)
     eid = empresa_alvo(c, c.corpo)
+    historico = _historico_recebido(c.corpo)
     limpa, pii = rag.anonimizar(pergunta)
-    consulta = re.sub(r"\[(?:EMAIL|CPF|CNPJ|TELEFONE)\]", " ", limpa).strip() or limpa
+    consulta = MARCADORES_PII.sub(" ", limpa).strip() or limpa
+    if historico and len(consulta.split()) < 6:        # pergunta curta de continuação: junta a pergunta anterior na busca
+        consulta = MARCADORES_PII.sub(" ", historico[-1]["pergunta"]).strip() + " " + consulta
     try:
         achados = rag.buscar(consulta, eid, auth.visibilidades_do(c.usuario["tipo"]), k=3)
     except Exception as e:
         raise Erro(503, f"Base vetorial indisponível ({type(e).__name__}). Rode: python rag.py reindexar")
-    achados = [a for a in achados if a["similaridade"] >= LIMIAR_SIMILARIDADE]
+    com_llm = llm.disponivel()
+    achados = [a for a in achados if rag.relevante(a, com_llm, PISO_VETOR)]
     if achados:   # mantém só os trechos próximos do melhor (evita citar fontes pouco relevantes)
-        achados = [a for a in achados if a["similaridade"] >= achados[0]["similaridade"] - 0.12]
+        topo = max(a["similaridade"] for a in achados)
+        achados = [a for a in achados if a["similaridade"] >= topo - 0.15 or a["lexical"]]
     base = {"pii_mascaradas": pii, "pergunta_anonimizada": limpa}
     meta_llm = {"modelo": None, "tokens_entrada": None, "tokens_saida": None}
     if not achados:
         resp = {**base, "encontrado": False, "gerado_por_ia": False, "fontes": [],
-                "resposta": "Não encontrei essa informação nos conteúdos disponíveis para você. "
-                            "Para evitar respostas inventadas, consulte seu gestor ou abra um chamado."}
+                "resposta": SEM_RESPOSTA}
     else:
-        fontes = [{"codigo": a["codigo"], "titulo": a["titulo"], "categoria": a["categoria"],
+        fontes = [{"conteudo_id": a["id"], "codigo": a["codigo"], "titulo": a["titulo"], "categoria": a["categoria"],
                    "similaridade": a["similaridade"]} for a in achados]
         try:
-            g = llm.gerar_resposta(limpa, achados)
+            g = llm.gerar_resposta(limpa, achados, historico)
             meta_llm = {k: g[k] for k in meta_llm}
-            resp = {**base, "encontrado": True, "gerado_por_ia": True, "resposta": g["texto"], "fontes": fontes}
+            if g["texto"].strip().upper().startswith("SEM_BASE"):      # a LLM concluiu que os documentos não respondem
+                resp = {**base, "encontrado": False, "gerado_por_ia": False, "fontes": [], "resposta": SEM_RESPOSTA}
+            else:
+                resp = {**base, "encontrado": True, "gerado_por_ia": True, "resposta": g["texto"], "fontes": fontes}
         except llm.LLMIndisponivel as e:
             resp = {**base, "encontrado": True, "gerado_por_ia": False, "resposta": _resposta_de_busca(achados),
                     "fontes": fontes, "aviso": str(e)}
@@ -215,8 +240,24 @@ def h_historico(c):
     return {"itens": [{**dict(r), "fontes": json.loads(r["fontes"] or "[]")} for r in rows]}
 
 
+@rota("GET", "/api/sugestoes")
+def h_sugestoes(c):
+    """Perguntas típicas dos conteúdos que o usuário pode ver (atalhos na página inicial e no assistente)."""
+    eid = empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [None])[0]}, obrigatoria=False)
+    vis = auth.visibilidades_do(c.usuario["tipo"])
+    sql = f"SELECT pergunta_exemplo FROM conteudos WHERE pergunta_exemplo IS NOT NULL AND visibilidade IN ({','.join('?' * len(vis))})"
+    params = list(vis)
+    if eid:
+        sql += " AND empresa_id=?"
+        params.append(eid)
+    return {"itens": [r[0] for r in c.con.execute(sql + " ORDER BY RANDOM() LIMIT 6", params)]}
+
+
 # ----- conteúdos -----
-CAMPOS_CONTEUDO = "id,empresa_id,codigo,titulo,categoria,texto,pergunta_exemplo,contem_pii,visibilidade,atualizado_em"
+LIMITE_TEXTO = 400_000
+CAMPOS_LISTA = ("id,empresa_id,codigo,titulo,categoria,contem_pii,visibilidade,atualizado_em,arquivo_nome,pergunta_exemplo,"
+                "SUBSTR(texto,1,300) AS resumo,LENGTH(texto) AS tamanho")
+CAMPOS_COMPLETO = "id,empresa_id,codigo,titulo,categoria,texto,pergunta_exemplo,resposta_exemplo,arquivo_nome,contem_pii,visibilidade,atualizado_em"
 
 
 def _conteudo_permitido(c, cid):
@@ -231,7 +272,9 @@ def _dados_conteudo(corpo):
     if vis not in ("todos", "internos"):
         raise Erro(400, "Visibilidade inválida.")
     return {"titulo": texto(corpo.get("titulo"), "título", 200), "categoria": texto(corpo.get("categoria") or "Geral", "categoria", 100),
-            "texto": texto(corpo.get("texto"), "conteúdo", 20000), "pergunta_exemplo": texto(corpo.get("pergunta_exemplo"), "pergunta de exemplo", 500, False) or None,
+            "texto": texto(corpo.get("texto"), "conteúdo", LIMITE_TEXTO),
+            "pergunta_exemplo": texto(corpo.get("pergunta_exemplo"), "pergunta de exemplo", 500, False) or None,
+            "resposta_exemplo": texto(corpo.get("resposta_exemplo"), "resposta de exemplo", 2000, False) or None,
             "contem_pii": 1 if corpo.get("contem_pii") else 0, "visibilidade": vis}
 
 
@@ -240,7 +283,7 @@ def h_conteudos(c):
     u = c.usuario
     eid = empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [None])[0]}, obrigatoria=False)
     vis = auth.visibilidades_do(u["tipo"])
-    sql = f"SELECT {CAMPOS_CONTEUDO} FROM conteudos WHERE visibilidade IN ({','.join('?' * len(vis))})"
+    sql = f"SELECT {CAMPOS_LISTA} FROM conteudos WHERE visibilidade IN ({','.join('?' * len(vis))})"
     params = list(vis)
     if eid:
         sql += " AND empresa_id=?"
@@ -250,6 +293,14 @@ def h_conteudos(c):
             "pode_editar": u["tipo"] in ("master", "admin")}
 
 
+@rota("GET", r"/api/conteudos/(\d+)")
+def h_conteudo(c):
+    r = _conteudo_permitido(c, int(c.args[0]))
+    if r["visibilidade"] not in auth.visibilidades_do(c.usuario["tipo"]):
+        raise Erro(404, "Conteúdo não encontrado.")
+    return {k: r[k] for k in CAMPOS_COMPLETO.split(",")}
+
+
 @rota("POST", "/api/conteudos", ("master", "admin"))
 def h_conteudo_criar(c):
     eid = empresa_alvo(c, c.corpo)
@@ -257,35 +308,67 @@ def h_conteudo_criar(c):
     codigo = texto(c.corpo.get("codigo"), "código", 60, False) or f"DOC_{int(time.time())}"
     try:
         cur = c.con.execute(
-            "INSERT INTO conteudos (empresa_id,codigo,titulo,categoria,texto,pergunta_exemplo,contem_pii,visibilidade,criado_por) VALUES (?,?,?,?,?,?,?,?,?)",
-            (eid, codigo, d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["contem_pii"], d["visibilidade"], c.usuario["id"]))
+            "INSERT INTO conteudos (empresa_id,codigo,titulo,categoria,texto,pergunta_exemplo,resposta_exemplo,contem_pii,visibilidade,criado_por) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (eid, codigo, d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["resposta_exemplo"], d["contem_pii"], d["visibilidade"], c.usuario["id"]))
     except sqlite3.IntegrityError:
         raise Erro(409, "Já existe um conteúdo com esse código nesta empresa.")
     c.con.commit()
-    rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cur.lastrowid,)).fetchone())
+    rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cur.lastrowid,)).fetchone(), c.con)
+    cursos.sincronizar(c.con, eid)
     return {"id": cur.lastrowid}
+
+
+@rota("POST", "/api/conteudos/arquivo", ("master", "admin"), limite=12_000_000)
+def h_conteudo_arquivo(c):
+    """Cria um conteúdo a partir de um arquivo (.txt, .md, .pdf, .docx): extrai o texto, divide em trechos e indexa."""
+    eid = empresa_alvo(c, c.corpo)
+    nome = Path(texto(c.corpo.get("nome"), "nome do arquivo", 200)).name
+    try:
+        dados = base64.b64decode(c.corpo.get("dados") or "", validate=True)
+    except (binascii.Error, ValueError):
+        raise Erro(400, "Arquivo inválido.")
+    if len(dados) > MAX_ARQUIVO:
+        raise Erro(413, "O arquivo passa de 8 MB.")
+    try:
+        conteudo = rag.extrair_texto(nome, dados)
+    except ValueError as e:
+        raise Erro(400, str(e))
+    vis = c.corpo.get("visibilidade", "internos")
+    if vis not in ("todos", "internos"):
+        raise Erro(400, "Visibilidade inválida.")
+    titulo = texto(c.corpo.get("titulo") or re.sub(r"[_\-]+", " ", Path(nome).stem).strip() or nome, "título", 200)
+    codigo = f"ARQ_{int(time.time() * 1000)}"
+    cur = c.con.execute(
+        "INSERT INTO conteudos (empresa_id,codigo,titulo,categoria,texto,arquivo_nome,visibilidade,criado_por) VALUES (?,?,?,?,?,?,?,?)",
+        (eid, codigo, titulo, texto(c.corpo.get("categoria") or "Documentos", "categoria", 100), conteudo, nome, vis, c.usuario["id"]))
+    c.con.commit()
+    rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cur.lastrowid,)).fetchone(), c.con)
+    cursos.sincronizar(c.con, eid)
+    return {"id": cur.lastrowid, "caracteres": len(conteudo), "trechos": len(rag.dividir_em_trechos(conteudo))}
 
 
 @rota("PUT", r"/api/conteudos/(\d+)", ("master", "admin"))
 def h_conteudo_editar(c):
     cid = int(c.args[0])
-    _conteudo_permitido(c, cid)
+    atual = _conteudo_permitido(c, cid)
     d = _dados_conteudo(c.corpo)
-    c.con.execute("UPDATE conteudos SET titulo=?,categoria=?,texto=?,pergunta_exemplo=?,contem_pii=?,visibilidade=?,"
+    c.con.execute("UPDATE conteudos SET titulo=?,categoria=?,texto=?,pergunta_exemplo=?,resposta_exemplo=?,contem_pii=?,visibilidade=?,"
                   "atualizado_em=datetime('now','localtime') WHERE id=?",
-                  (d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["contem_pii"], d["visibilidade"], cid))
+                  (d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["resposta_exemplo"], d["contem_pii"], d["visibilidade"], cid))
     c.con.commit()
-    rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cid,)).fetchone())
+    rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cid,)).fetchone(), c.con)
+    cursos.sincronizar(c.con, atual["empresa_id"])
     return {"ok": True}
 
 
 @rota("DELETE", r"/api/conteudos/(\d+)", ("master", "admin"))
 def h_conteudo_excluir(c):
     cid = int(c.args[0])
-    _conteudo_permitido(c, cid)
+    atual = _conteudo_permitido(c, cid)
     c.con.execute("DELETE FROM conteudos WHERE id=?", (cid,))
     c.con.commit()
-    rag.remover_conteudo(cid)
+    rag.remover_conteudo(cid, c.con)
+    cursos.sincronizar(c.con, atual["empresa_id"])
     return {"ok": True}
 
 
@@ -432,6 +515,105 @@ def h_exportar(c):
                    {"Content-Disposition": "attachment; filename=respostas_outgpt.csv"})
 
 
+# ----- cursos -----
+def _eid(c):
+    """Empresa da operação: query string (GET) ou corpo (POST/PUT); o master precisa escolher."""
+    return empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [c.corpo.get("empresa_id")])[0]})
+
+
+@rota("GET", "/api/cursos")
+def h_cursos(c):
+    lista = cursos.listar(c.con, c.usuario, _eid(c))
+    return {"itens": lista, "resumo": cursos.resumo(lista), "pode_editar": c.usuario["tipo"] in ("master", "admin")}
+
+
+@rota("GET", r"/api/cursos/(\d+)")
+def h_curso(c):
+    d = cursos.detalhe(c.con, c.usuario, _eid(c), int(c.args[0]))
+    if not d:
+        raise Erro(404, "Curso não encontrado.")
+    return d
+
+
+@rota("POST", r"/api/cursos/(\d+)/licoes/(\d+)/concluir")
+def h_licao_concluir(c):
+    if not cursos.concluir(c.con, c.usuario, _eid(c), int(c.args[0]), int(c.args[1])):
+        raise Erro(404, "Lição não encontrada.")
+    return {"ok": True}
+
+
+@rota("POST", r"/api/cursos/(\d+)/licoes/(\d+)/responder")
+def h_licao_responder(c):
+    opcao = c.corpo.get("opcao")
+    if not isinstance(opcao, int) or isinstance(opcao, bool) or not 0 <= opcao < 10:
+        raise Erro(400, "Escolha uma alternativa.")
+    r = cursos.responder_quiz(c.con, c.usuario, _eid(c), int(c.args[0]), int(c.args[1]), opcao)
+    if r is None:
+        raise Erro(404, "Pergunta não encontrada.")
+    return r
+
+
+@rota("POST", "/api/cursos/sincronizar", ("master", "admin"))
+def h_cursos_sincronizar(c):
+    criados, anexados = cursos.sincronizar(c.con, _eid(c))
+    return {"criados": criados, "anexados": anexados}
+
+
+def _curso_permitido(c, curso_id):
+    r = c.con.execute("SELECT * FROM cursos WHERE id=?", (curso_id,)).fetchone()
+    if not r or (c.usuario["tipo"] != "master" and r["empresa_id"] != c.usuario["empresa_id"]):
+        raise Erro(404, "Curso não encontrado.")
+    return r
+
+
+@rota("PUT", r"/api/cursos/(\d+)", ("master", "admin"))
+def h_curso_editar(c):
+    _curso_permitido(c, int(c.args[0]))
+    c.con.execute("UPDATE cursos SET titulo=?, descricao=? WHERE id=?", (texto(c.corpo.get("titulo"), "título", 200),
+                                                                         texto(c.corpo.get("descricao"), "descrição", 500, False) or None, int(c.args[0])))
+    c.con.commit()
+    return {"ok": True}
+
+
+@rota("DELETE", r"/api/cursos/(\d+)", ("master", "admin"))
+def h_curso_excluir(c):
+    _curso_permitido(c, int(c.args[0]))
+    c.con.execute("DELETE FROM cursos WHERE id=?", (int(c.args[0]),))
+    c.con.commit()
+    return {"ok": True}
+
+
+# ----- painel da empresa e administração da IA -----
+@rota("GET", "/api/painel", ("master", "admin"))
+def h_painel(c):
+    eid = _eid(c)
+    q = lambda sql, *p: c.con.execute(sql, p).fetchone()[0]
+    return {"usuarios": q("SELECT COUNT(*) FROM usuarios WHERE empresa_id=? AND ativo=1", eid),
+            "conteudos": q("SELECT COUNT(*) FROM conteudos WHERE empresa_id=?", eid),
+            "cursos": q("SELECT COUNT(*) FROM cursos WHERE empresa_id=?", eid),
+            "perguntas_7d": q("SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND criado_em >= datetime('now','localtime','-7 days')", eid)}
+
+
+@rota("GET", "/api/llm", ("master",))
+def h_llm(c):
+    return {"configurada": llm.disponivel(), "modelo": llm.MODELO, "esforco": llm.ESFORCO}
+
+
+@rota("POST", "/api/llm/testar", ("master",))
+def h_llm_testar(c):
+    limitar(f"llm:{c.usuario['id']}", 10, 600)
+    ok, msg = llm.testar()
+    return {"ok": ok, "mensagem": msg}
+
+
+@rota("POST", "/api/llm/chave", ("master",), limite=10_000)
+def h_llm_chave(c):
+    limitar(f"llmchave:{c.usuario['id']}", 5, 600)
+    ok, msg = llm.salvar_chave(c.corpo.get("chave"))
+    if not ok:
+        raise Erro(400, msg)
+    return {"ok": True, "mensagem": msg}
+
 # ---------- HTTP ----------
 class Handler(BaseHTTPRequestHandler):
     server_version = "OutGPT"
@@ -472,13 +654,13 @@ class Handler(BaseHTTPRequestHandler):
             except FileNotFoundError:
                 return self._enviar(404, b"Nao encontrado", "text/plain; charset=utf-8")
         rota_ok = None
-        for m, rx, fn, acesso in ROTAS:
+        for m, rx, fn, acesso, limite in ROTAS:
             if m == metodo and (mt := rx.match(caminho)):
-                rota_ok = (fn, acesso, mt.groups())
+                rota_ok = (fn, acesso, mt.groups(), limite)
                 break
         if not rota_ok:
             return self._enviar(404, b"Nao encontrado", "text/plain; charset=utf-8")
-        fn, acesso, args = rota_ok
+        fn, acesso, args, limite = rota_ok
         corpo = {}
         if metodo != "GET":
             origem = self.headers.get("Origin")           # defesa extra contra CSRF (além do SameSite=Strict)
@@ -488,7 +670,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(415, {"ok": False, "mensagem": "Use Content-Type: application/json."})
             try:
                 tam = int(self.headers.get("Content-Length") or 0)
-                if tam > MAX_CORPO:
+                if tam > limite:
                     return self._json(413, {"ok": False, "mensagem": "Requisição grande demais."})
                 corpo = json.loads(self.rfile.read(tam) or b"{}")
                 if not isinstance(corpo, dict):
@@ -528,6 +710,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def _aquecer():
     try:
+        if rag.garantir_indice():
+            print("Índice de busca recriado.")
         rag.colecao().query(query_texts=["aquecimento"], n_results=1)
     except Exception:
         pass
@@ -537,7 +721,7 @@ if __name__ == "__main__":
     if not db.DB.exists():
         raise SystemExit("Banco não encontrado. Rode antes: python init_db.py")
     with db.conectar() as con:
-        if con.execute("PRAGMA user_version").fetchone()[0] < 2:
+        if con.execute("PRAGMA user_version").fetchone()[0] < 3:
             raise SystemExit("Banco desatualizado. Rode: python init_db.py")
         if not con.execute("SELECT 1 FROM usuarios WHERE tipo='master'").fetchone():
             print("Aviso: não há usuário master. Crie o seu com: python criar_master.py")
