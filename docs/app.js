@@ -282,8 +282,8 @@ function render() {
   const [, rota = "inicio", a1, a2] = location.hash.split("/");
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.route === rota || (rota === "curso" && a.dataset.route === "cursos")));
   const telas = { inicio: telaInicio, cursos: telaCursos, curso: () => telaCurso(+a1, +a2 || null), chat: telaChat, historico: telaHistorico,
-    biblioteca: telaBiblioteca, usuarios: telaUsuarios, empresas: telaEmpresas, ia: telaIA, sobre: telaSobre };
-  const exige = { usuarios: ehAdmin() && !estado.demo, empresas: ehMaster() && !estado.demo, ia: ehMaster() && !estado.demo };
+    biblioteca: telaBiblioteca, usuarios: telaUsuarios, lacunas: telaLacunas, empresas: telaEmpresas, ia: telaIA, sobre: telaSobre };
+  const exige = { usuarios: ehAdmin() && !estado.demo, lacunas: ehAdmin() && !estado.demo, empresas: ehMaster() && !estado.demo, ia: ehMaster() && !estado.demo };
   view.style.animation = "none"; view.offsetHeight; view.style.animation = "";
   ((rota in exige && !exige[rota]) ? telaInicio : (telas[rota] || telaInicio))();
   scrollTo(0, 0);
@@ -339,7 +339,7 @@ async function painelAdmin() {
     let ia = "";
     if (ehMaster()) { const s = await api("/api/llm"); ia = s.configurada ? `<span class="badge ok">🤖 IA ativa · ${esc(s.modelo)}</span>` : `<a class="alerta demo" href="#/ia">⚠️ A IA ainda não está ligada. Configure a chave da API →</a>`; }
     box.innerHTML = `<div class="card painel"><div class="painel-topo"><h2>Painel da empresa</h2>${ia}</div>
-      <div class="painel-nums"><div><b>${p.usuarios}</b><small>usuários ativos</small></div><div><b>${p.conteudos}</b><small>conteúdos</small></div><div><b>${p.cursos}</b><small>cursos</small></div><div><b>${p.perguntas_7d}</b><small>perguntas em 7 dias</small></div></div>
+      <div class="painel-nums"><div><b>${p.usuarios}</b><small>usuários ativos</small></div><div><b>${p.conteudos}</b><small>conteúdos</small></div><div><b>${p.cursos}</b><small>cursos</small></div><div><b>${p.perguntas_7d}</b><small>perguntas em 7 dias</small></div><div><b>${p.satisfacao === null ? "—" : p.satisfacao + "%"}</b><small>respostas úteis</small></div></div>${p.lacunas ? `<a class="alerta demo" href="#/lacunas">🔎 ${p.lacunas} pergunta(s) sem resposta: cadastre conteúdo para cobrir →</a>` : ""}
       <div class="painel-acoes"><button class="btn" data-acao="arquivo">⬆ Enviar arquivo</button><button class="btn" data-acao="novo">+ Novo conteúdo</button><a class="btn" href="#/usuarios">👥 Cadastrar usuário</a></div></div>`;
     box.querySelectorAll("[data-acao]").forEach(b => b.onclick = () => { acaoPendente = b.dataset.acao; location.hash = "#/biblioteca"; });
   } catch { /* painel é opcional */ }
@@ -459,6 +459,8 @@ async function telaChat() {
         + (r.aviso ? `<div class="nota">ℹ️ ${esc(r.aviso)}</div>` : "")
         + (r.pii_mascaradas?.length ? `<div class="nota">🔒 Dados sensíveis mascarados antes da consulta: ${esc(r.pii_mascaradas.join(", "))}</div>` : "");
       w.querySelectorAll("[data-fonte]").forEach(b => b.onclick = async () => { try { const c = await Dados.conteudo(+b.dataset.fonte); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}</p>${md(c.texto)}`, { larga: true }); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
+      if (r.id && r.encontrado) w.insertAdjacentHTML("beforeend", `<div class="avalia" data-id="${r.id}"><span class="muted">Essa resposta ajudou?</span><button class="mini-btn" data-nota="1" title="Ajudou">👍</button><button class="mini-btn" data-nota="-1" title="Não ajudou">👎</button></div>`);
+      w.querySelectorAll(".avalia [data-nota]").forEach(b => b.onclick = () => avaliar(w.querySelector(".avalia"), +b.parentElement.dataset.id, +b.dataset.nota));
       if (r.encontrado) { conversa.push({ pergunta: texto, resposta: r.resposta }); conversa = conversa.slice(-3); }
     } catch (err) { finalizado = true; if (err.status === 401) return; w.className = "msg bot"; w.innerHTML = `⚠️ ${esc(err.message)}`; }
     msgs.scrollTop = msgs.scrollHeight;
@@ -469,6 +471,16 @@ async function telaChat() {
   if (pendente) { const p = pendente; pendente = null; perguntar(p); }
 }
 
+// Avaliação de uma resposta (👍 / 👎 com comentário opcional)
+async function avaliar(box, id, nota) {
+  const enviar = async comentario => {
+    try { await api("/api/avaliar", { method: "POST", body: { id, avaliacao: nota, comentario } }); box.innerHTML = `<span class="muted">${nota === 1 ? "Obrigado pelo feedback! 👍" : "Obrigado! Vamos usar isso para melhorar. 👎"}</span>`; }
+    catch (e) { box.innerHTML = `<span class="muted">Não foi possível enviar: ${esc(e.message)}</span>`; }
+  };
+  if (nota === 1) return enviar(null);
+  janela("O que faltou nessa resposta?", `<label class="field">Comentário (opcional)<textarea id="av-com" maxlength="500" rows="3" placeholder="Ex.: faltou dizer o ramal do suporte"></textarea></label>`,
+    { salvar: "Enviar", aoSalvar: async () => { await enviar($("#av-com").value.trim() || null); } });
+}
 // ---------- Histórico ----------
 async function telaHistorico() {
   if (estado.demo) { view.innerHTML = cabecalho("Histórico de dúvidas", "Disponível quando o servidor está ativo.") + `<div class="card vazio"><div class="vazio-ico">🕘</div><p class="muted">O histórico das suas perguntas é guardado no banco de dados da empresa.</p></div>`; return; }
@@ -518,8 +530,8 @@ async function telaBiblioteca() {
 }
 
 const datalistCats = cats => `<datalist id="lista-cats">${(cats || []).map(c => `<option value="${esc(c)}">`).join("")}</datalist>`;
-function formConteudo(c, cats) {
-  const novo = !c;
+function formConteudo(c, cats, opc = {}) {
+  const novo = !c || opc.semId;
   janela(novo ? "Novo conteúdo" : "Editar conteúdo", `
     ${novo ? `<label class="field">Código (opcional)<input id="f-codigo" maxlength="60" placeholder="Ex.: SOP_RH_30"></label>` : `<p class="muted">Código: ${esc(c.codigo)}${c.arquivo_nome ? " · arquivo " + esc(c.arquivo_nome) : ""}</p>`}
     <label class="field">Título *<input id="f-titulo" maxlength="200" required value="${esc(c?.titulo)}"></label>
@@ -532,9 +544,9 @@ function formConteudo(c, cats) {
     <label class="opt"><input type="checkbox" id="f-pii" ${c?.contem_pii ? "checked" : ""}><span>Este conteúdo trata de dados pessoais (PII)</span></label>`,
     { larga: true, aoSalvar: async () => {
       const corpo = { titulo: $("#f-titulo").value, categoria: $("#f-cat").value, texto: $("#f-texto").value, pergunta_exemplo: $("#f-perg").value, resposta_exemplo: $("#f-resp").value, visibilidade: $("#f-vis").value, contem_pii: $("#f-pii").checked };
-      if (novo) await api("/api/conteudos", { method: "POST", body: { ...corpo, codigo: $("#f-codigo").value, empresa_id: estado.empresaId } });
+      if (novo) await api("/api/conteudos", { method: "POST", body: { ...corpo, codigo: $("#f-codigo")?.value, empresa_id: estado.empresaId } });
       else await api(`/api/conteudos/${c.id}`, { method: "PUT", body: corpo });
-      telaBiblioteca();
+      if (opc.aoCriar) opc.aoCriar(); else telaBiblioteca();
     } });
 }
 
@@ -570,6 +582,38 @@ function formImportar() {
     } });
 }
 
+// ---------- Lacunas de conteúdo e feedback (admin) ----------
+async function telaLacunas() {
+  if (semEmpresa()) { view.innerHTML = cabecalho("Lacunas e feedback", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaLacunas); return; }
+  view.innerHTML = cabecalho("Lacunas e feedback", "O que os usuários perguntaram e o assistente não soube responder, e as respostas que não ajudaram.") + `<div class="card">Carregando...</div>`;
+  ligarSeletorEmpresa(telaLacunas);
+  let l, f;
+  try { [l, f] = await Promise.all([api("/api/lacunas" + qEmpresa()), api("/api/feedback" + qEmpresa())]); } catch (err) { return erroTela(err); }
+  const sat = f.satisfacao === null ? "—" : f.satisfacao + "%";
+  view.innerHTML = cabecalho("Lacunas e feedback", "O que os usuários perguntaram e o assistente não soube responder, e as respostas que não ajudaram.") + `
+    <div class="stats"><div class="stat"><div class="ico">🔎</div><div><b>${l.itens.length}</b><small>perguntas sem resposta</small></div></div>
+      <div class="stat"><div class="ico">👍</div><div><b>${f.uteis}</b><small>respostas úteis (30 dias)</small></div></div>
+      <div class="stat"><div class="ico">👎</div><div><b>${f.nao_ajudaram}</b><small>não ajudaram (30 dias)</small></div></div>
+      <div class="stat"><div class="ico">😊</div><div><b>${sat}</b><small>satisfação</small></div></div></div>
+    <div class="card"><h2>Perguntas sem resposta</h2><p class="muted">Cadastre um conteúdo que responda e a lacuna some. As mais repetidas aparecem primeiro.</p>
+      ${l.itens.length ? `<div class="table-wrap"><table><thead><tr><th>Pergunta</th><th>Vezes</th><th>Usuários</th><th>Última</th><th></th></tr></thead><tbody>${l.itens.map((i, n) => `
+        <tr><td>${esc(i.pergunta)}</td><td>${i.vezes}</td><td>${i.usuarios}</td><td>${quando(i.ultima)}</td>
+        <td class="acoes-linha"><button class="btn mini primary" data-criar="${n}">Criar conteúdo</button><button class="btn mini" data-ignorar="${n}">Ignorar</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">🎉 Nenhuma lacuna no momento.</p>`}</div>
+    <div class="card"><h2>Respostas que não ajudaram</h2>
+      ${f.itens.length ? `<div class="table-wrap"><table><thead><tr><th>Pergunta</th><th>Comentário</th><th>Usuário</th><th>Quando</th><th></th></tr></thead><tbody>${f.itens.map((i, n) => `
+        <tr><td title="${esc(i.resposta)}">${esc(i.pergunta)}</td><td>${esc(i.comentario || "—")}</td><td>${esc(i.usuario || "—")}</td><td>${quando(i.criado_em)}</td>
+        <td class="acoes-linha"><button class="btn mini" data-ver="${n}">Ver resposta</button><button class="btn mini" data-tratado="${n}">Tratado</button></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Nenhuma resposta mal avaliada pendente.</p>`}</div>`;
+  ligarSeletorEmpresa(telaLacunas);
+  const resolver = async ids => { await api("/api/lacunas/resolver" + qEmpresa(), { method: "POST", body: { ids } }); telaLacunas(); };
+  view.querySelectorAll("[data-ignorar]").forEach(b => b.onclick = () => resolver(l.itens[+b.dataset.ignorar].ids));
+  view.querySelectorAll("[data-criar]").forEach(b => b.onclick = async () => {
+    const item = l.itens[+b.dataset.criar];
+    let cats = []; try { cats = (await Dados.conteudos()).categorias; } catch { /* sem categorias */ }
+    formConteudo({ titulo: item.pergunta.replace(/[?]+$/, ""), pergunta_exemplo: item.pergunta, categoria: "Geral", visibilidade: "internos" }, cats, { aoCriar: () => resolver(item.ids), semId: true });
+  });
+  view.querySelectorAll("[data-ver]").forEach(b => b.onclick = () => { const i = f.itens[+b.dataset.ver]; janela("Resposta que não ajudou", `<p><strong>Pergunta:</strong> ${esc(i.pergunta)}</p><hr>${md(i.resposta)}${i.comentario ? `<hr><p><strong>Comentário:</strong> ${esc(i.comentario)}</p>` : ""}<p class="muted">Fontes: ${esc(i.fontes.map(x => x.codigo).join(", ") || "nenhuma")}</p>`, { larga: true }); });
+  view.querySelectorAll("[data-tratado]").forEach(b => b.onclick = async () => { await api("/api/feedback/resolver" + qEmpresa(), { method: "POST", body: { id: f.itens[+b.dataset.tratado].id } }); telaLacunas(); });
+}
 // ---------- Usuários ----------
 async function telaUsuarios() {
   if (semEmpresa()) { view.innerHTML = cabecalho("Usuários", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaUsuarios); return; }

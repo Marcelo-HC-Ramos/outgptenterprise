@@ -652,6 +652,79 @@ def h_curso_excluir(c):
     return {"ok": True}
 
 
+# ----- lacunas de conteúdo (perguntas que o assistente não soube responder) -----
+def _normalizar_pergunta(p):
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", rag._normalizar(p))).strip()
+
+
+def _lacunas(con, eid):
+    """Perguntas sem resposta dos últimos 60 dias, agrupadas por pergunta parecida (mais repetidas primeiro)."""
+    grupos = {}
+    for r in con.execute(
+            "SELECT id, pergunta, usuario_id, criado_em FROM historico_duvidas WHERE empresa_id=? AND encontrado=0 AND resolvida=0 "
+            "AND criado_em >= datetime('now','localtime','-60 days') ORDER BY id DESC LIMIT 1000", (eid,)):
+        g = grupos.setdefault(_normalizar_pergunta(r["pergunta"]), {"pergunta": r["pergunta"], "ids": [], "usuarios": set(), "ultima": r["criado_em"]})
+        g["ids"].append(r["id"]); g["usuarios"].add(r["usuario_id"])
+    itens = [{"pergunta": g["pergunta"], "vezes": len(g["ids"]), "usuarios": len(g["usuarios"]), "ultima": g["ultima"], "ids": g["ids"]} for g in grupos.values()]
+    itens.sort(key=lambda x: x["ultima"], reverse=True)      # mais recentes primeiro...
+    itens.sort(key=lambda x: -x["vezes"])                    # ...e, acima de tudo, as mais repetidas
+    return itens
+
+
+@rota("GET", "/api/lacunas", ("master", "admin"))
+def h_lacunas(c):
+    return {"itens": _lacunas(c.con, _eid(c))[:50]}
+
+@rota("POST", "/api/lacunas/resolver", ("master", "admin"))
+def h_lacunas_resolver(c):
+    ids = [i for i in (c.corpo.get("ids") or []) if isinstance(i, int) and not isinstance(i, bool)][:500]
+    if not ids:
+        raise Erro(400, "Nada para resolver.")
+    eid = _eid(c)
+    c.con.execute(f"UPDATE historico_duvidas SET resolvida=1 WHERE empresa_id=? AND encontrado=0 AND id IN ({','.join('?' * len(ids))})", [eid, *ids])
+    c.con.commit()
+    return {"ok": True}
+
+# ----- feedback sobre as respostas do assistente -----
+@rota("POST", "/api/avaliar")
+def h_avaliar(c):
+    """O usuário avalia uma resposta dele: 1 = útil, -1 = não ajudou (com comentário opcional)."""
+    hid, nota = c.corpo.get("id"), c.corpo.get("avaliacao")
+    if not isinstance(hid, int) or isinstance(hid, bool) or nota not in (1, -1):
+        raise Erro(400, "Avaliação inválida.")
+    comentario = texto(c.corpo.get("comentario"), "comentário", 500, False) or None
+    cur = c.con.execute("UPDATE historico_duvidas SET avaliacao=?, comentario=? WHERE id=? AND usuario_id=?",
+                        (nota, comentario, hid, c.usuario["id"]))
+    if cur.rowcount == 0:
+        raise Erro(404, "Resposta não encontrada.")
+    c.con.commit()
+    return {"ok": True}
+
+
+@rota("GET", "/api/feedback", ("master", "admin"))
+def h_feedback(c):
+    """Resumo das avaliações dos últimos 30 dias e as respostas que não ajudaram (ainda não tratadas)."""
+    eid = _eid(c)
+    janela = "criado_em >= datetime('now','localtime','-30 days')"
+    util = c.con.execute(f"SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND avaliacao=1 AND {janela}", (eid,)).fetchone()[0]
+    ruim = c.con.execute(f"SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND avaliacao=-1 AND {janela}", (eid,)).fetchone()[0]
+    itens = []
+    for r in c.con.execute(
+            "SELECT h.id,h.pergunta,h.resposta,h.fontes,h.comentario,h.criado_em,u.nome AS usuario FROM historico_duvidas h "
+            "LEFT JOIN usuarios u ON u.id=h.usuario_id WHERE h.empresa_id=? AND h.avaliacao=-1 AND h.resolvida=0 ORDER BY h.id DESC LIMIT 50", (eid,)):
+        itens.append({**dict(r), "resposta": r["resposta"][:700], "fontes": json.loads(r["fontes"] or "[]")})
+    return {"uteis": util, "nao_ajudaram": ruim, "satisfacao": round(100 * util / (util + ruim)) if util + ruim else None, "itens": itens}
+
+
+@rota("POST", "/api/feedback/resolver", ("master", "admin"))
+def h_feedback_resolver(c):
+    hid = c.corpo.get("id")
+    if not isinstance(hid, int) or isinstance(hid, bool):
+        raise Erro(400, "Registro inválido.")
+    c.con.execute("UPDATE historico_duvidas SET resolvida=1 WHERE id=? AND empresa_id=? AND avaliacao=-1", (hid, _eid(c)))
+    c.con.commit()
+    return {"ok": True}
+
 # ----- painel da empresa e administração da IA -----
 @rota("GET", "/api/painel", ("master", "admin"))
 def h_painel(c):
@@ -660,7 +733,11 @@ def h_painel(c):
     return {"usuarios": q("SELECT COUNT(*) FROM usuarios WHERE empresa_id=? AND ativo=1", eid),
             "conteudos": q("SELECT COUNT(*) FROM conteudos WHERE empresa_id=?", eid),
             "cursos": q("SELECT COUNT(*) FROM cursos WHERE empresa_id=?", eid),
-            "perguntas_7d": q("SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND criado_em >= datetime('now','localtime','-7 days')", eid)}
+            "perguntas_7d": q("SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND criado_em >= datetime('now','localtime','-7 days')", eid),
+            "satisfacao": (lambda u, r: round(100 * u / (u + r)) if u + r else None)(
+                q("SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND avaliacao=1 AND criado_em >= datetime('now','localtime','-30 days')", eid),
+                q("SELECT COUNT(*) FROM historico_duvidas WHERE empresa_id=? AND avaliacao=-1 AND criado_em >= datetime('now','localtime','-30 days')", eid)),
+            "lacunas": len(_lacunas(c.con, eid))}
 
 
 @rota("GET", "/api/llm", ("master",))
