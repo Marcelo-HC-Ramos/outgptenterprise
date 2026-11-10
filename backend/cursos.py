@@ -5,6 +5,7 @@
   cujas alternativas erradas vêm das respostas de outros conteúdos da mesma empresa.
 - O usuário só vê lições de conteúdos que sua visibilidade permite (colaborador externo: apenas "todos").
 """
+import json
 import math
 import random
 import re
@@ -70,7 +71,13 @@ def sincronizar(con, empresa_id):
 def _quiz(con, k, vis):
     """Questão de múltipla escolha de um conteúdo (dict com pergunta, opcoes, indice) ou None. Determinística."""
     if not k["pergunta_exemplo"] or not k["resposta_exemplo"]:
-        return None
+        g = con.execute("SELECT pergunta, correta, erradas FROM quiz_gerados WHERE conteudo_id=?", (k["id"],)).fetchone()
+        if not g:
+            return None
+        rnd = random.Random(f"quiz:{k['id']}")
+        opcoes = json.loads(g["erradas"]) + [g["correta"]]
+        rnd.shuffle(opcoes)
+        return {"pergunta": g["pergunta"], "opcoes": opcoes, "indice": opcoes.index(g["correta"]), "ia": True}
     correta = k["resposta_exemplo"].strip()
     outros = con.execute(
         f"SELECT categoria, resposta_exemplo FROM conteudos WHERE empresa_id=? AND id<>? AND resposta_exemplo IS NOT NULL "
@@ -153,7 +160,7 @@ def detalhe(con, usuario, empresa_id, curso_id):
         licoes.append({"conteudo_id": r["id"], "codigo": r["codigo"], "titulo": r["titulo"], "texto": r["texto"],
                        "minutos": _minutos(r["texto"]), "concluida": bool(r["concluida_em"]),
                        "acertou": None if r["acertou"] is None else bool(r["acertou"]),
-                       "quiz": {"pergunta": q["pergunta"], "opcoes": q["opcoes"]} if q else None})
+                       "quiz": {"pergunta": q["pergunta"], "opcoes": q["opcoes"], "ia": bool(q.get("ia"))} if q else None})
     r0 = linhas[0]
     feitas = sum(1 for l in licoes if l["concluida"])
     return {"id": r0["curso_id"], "titulo": r0["curso"], "descricao": r0["descricao"], "categoria": r0["curso_categoria"], "nivel": r0["nivel"],

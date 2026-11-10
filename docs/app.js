@@ -382,6 +382,7 @@ async function telaCurso(id, licaoId) {
     const respondida = l.acertou !== null;
     view.innerHTML = `<a href="#/cursos" class="muted voltar">← Cursos</a>
       <div class="curso-cab"><div><h1>${iconeDe(c.categoria)} ${esc(c.titulo)}</h1><p class="muted">${esc(c.descricao || "")}</p></div>${anel(pct)}</div>
+      ${bannerQuiz()}
       <div class="aula-layout">
         <nav class="card licoes" aria-label="Lições"><ol>${c.licoes.map((x, i) => `<li><button class="${i === atual ? "ativa" : ""} ${x.concluida ? "feita" : ""}" data-i="${i}"><span class="marca">${x.concluida ? "✓" : i + 1}</span><span>${esc(x.titulo)}</span></button></li>`).join("")}</ol></nav>
         <div class="aula">
@@ -391,7 +392,7 @@ async function telaCurso(id, licaoId) {
             <div class="texto-aula">${md(l.texto)}</div>
           </article>
           ${pct === 100 && l.concluida && ultimo ? finalCurso() : ""}
-          ${l.quiz ? `<div class="card quiz"><small class="muted">VERIFIQUE O QUE APRENDEU</small><h3>${esc(l.quiz.pergunta)}</h3>
+          ${l.quiz ? `<div class="card quiz"><small class="muted">VERIFIQUE O QUE APRENDEU${l.quiz.ia ? " · 🤖 pergunta gerada por IA" : ""}</small><h3>${esc(l.quiz.pergunta)}</h3>
               <div id="alt">${l.quiz.opcoes.map((o, i) => `<button class="opt-btn" data-o="${i}" ${respondida ? "disabled" : ""}>${esc(o)}</button>`).join("")}</div>
               <div id="retorno-quiz">${respondida ? `<p class="muted">Você já respondeu esta pergunta (${l.acertou ? "acertou ✓" : "errou"}).</p>` : ""}</div></div>` : ""}
           <div class="aula-nav">
@@ -400,6 +401,7 @@ async function telaCurso(id, licaoId) {
             <button class="btn ${l.concluida || l.quiz ? "primary" : ""}" id="prox" ${ultimo ? "disabled" : ""}>Próxima →</button>
           </div>
         </div></div>`;
+    if ($("#gerar-quiz")) $("#gerar-quiz").onclick = gerarQuiz;
     view.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { atual = +b.dataset.i; desenhar(); scrollTo(0, 0); });
     $("#ant").onclick = () => { atual--; desenhar(); scrollTo(0, 0); };
     $("#prox").onclick = () => { atual++; desenhar(); scrollTo(0, 0); };
@@ -417,6 +419,22 @@ async function telaCurso(id, licaoId) {
         if (feitas() === c.licoes.length) setTimeout(desenhar, 900);
       } catch (err) { erroTela(err); }
     });
+  };
+  const semQuiz = () => c.licoes.filter(l => !l.quiz);
+  const bannerQuiz = () => (ehAdmin() && !estado.demo && semQuiz().length)
+    ? `<div class="alerta demo banner-quiz"><span>${semQuiz().length} lição(ões) sem pergunta de verificação.</span>${estado.usuario.llm ? `<button class="btn mini" id="gerar-quiz">🤖 Gerar com IA</button>` : `<a href="#/ia">Ligue a IA para gerar →</a>`}</div>` : "";
+  const gerarQuiz = async () => {
+    const lista = semQuiz();
+    if (!(await confirmar(`Gerar perguntas de verificação com a IA para ${lista.length} lição(ões)? Será feita uma chamada à IA por lição.`))) return;
+    const d = janela("Gerando perguntas...", `<p id="g-prog" class="muted">0 de ${lista.length}</p><div class="progress"><i id="g-barra" style="width:0%"></i></div><div id="g-falhas" class="nota"></div>`);
+    let ok = 0, falhas = [];
+    for (const [i, l] of lista.entries()) {
+      if (!document.body.contains(d)) break;                         // o admin fechou a janela: para
+      try { const r = await api(`/api/conteudos/${l.conteudo_id}/quiz`, { method: "POST", body: {} }); if (r.gerado) ok++; } catch (e) { falhas.push(`${l.titulo}: ${e.message}`); }
+      if (document.body.contains(d)) { $("#g-prog", d).textContent = `${i + 1} de ${lista.length}`; $("#g-barra", d).style.width = `${Math.round(100 * (i + 1) / lista.length)}%`; }
+    }
+    if (document.body.contains(d)) { $("#g-prog", d).textContent = `Concluído: ${ok} pergunta(s) gerada(s)${falhas.length ? `, ${falhas.length} falha(s)` : ""}.`; $("#g-falhas", d).innerHTML = falhas.map(esc).join("<br>"); }
+    telaCurso(id, c.licoes[atual]?.conteudo_id);
   };
   const finalCurso = () => { const resp = c.licoes.filter(x => x.acertou !== null), ac = resp.filter(x => x.acertou).length;
     return `<div class="card parabens"><div class="vazio-ico">🎉</div><h2>Curso concluído!</h2><p class="muted">Você completou as ${c.licoes.length} lições${resp.length ? ` e acertou ${ac} de ${resp.length} perguntas` : ""}.</p><a class="btn primary" href="#/cursos">Ver outros cursos</a></div>`; };

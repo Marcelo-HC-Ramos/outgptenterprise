@@ -416,11 +416,30 @@ def h_conteudo_arquivo(c):
     return {"id": cur.lastrowid, "caracteres": len(conteudo), "trechos": len(rag.dividir_em_trechos(conteudo))}
 
 
+@rota("POST", r"/api/conteudos/(\d+)/quiz", ("master", "admin"))
+def h_conteudo_quiz(c):
+    """Gera (ou refaz) a pergunta de verificação de uma lição com a IA. Uma chamada por lição (o site chama em sequência)."""
+    limitar(f"quiz:{c.usuario['id']}", 40, 600)
+    cid = int(c.args[0])
+    r = _conteudo_permitido(c, cid)
+    if r["pergunta_exemplo"] and r["resposta_exemplo"] and not c.corpo.get("forcar"):
+        return {"gerado": False, "motivo": "A lição já tem pergunta e resposta de exemplo."}
+    try:
+        q = llm.gerar_quiz(r["titulo"], r["texto"])
+    except llm.LLMIndisponivel as e:
+        raise Erro(503, str(e))
+    c.con.execute("INSERT OR REPLACE INTO quiz_gerados (conteudo_id, pergunta, correta, erradas, modelo) VALUES (?,?,?,?,?)",
+                  (cid, q["pergunta"], q["correta"], json.dumps(q["erradas"], ensure_ascii=False), q["modelo"]))
+    c.con.commit()
+    return {"gerado": True, "pergunta": q["pergunta"]}
+
 @rota("PUT", r"/api/conteudos/(\d+)", ("master", "admin"))
 def h_conteudo_editar(c):
     cid = int(c.args[0])
     atual = _conteudo_permitido(c, cid)
     d = _dados_conteudo(c.corpo)
+    if d["texto"] != atual["texto"]:      # o conteúdo mudou: a pergunta gerada antes pode estar desatualizada
+        c.con.execute("DELETE FROM quiz_gerados WHERE conteudo_id=?", (cid,))
     c.con.execute("UPDATE conteudos SET titulo=?,categoria=?,texto=?,pergunta_exemplo=?,resposta_exemplo=?,contem_pii=?,visibilidade=?,"
                   "atualizado_em=datetime('now','localtime') WHERE id=?",
                   (d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["resposta_exemplo"], d["contem_pii"], d["visibilidade"], cid))
