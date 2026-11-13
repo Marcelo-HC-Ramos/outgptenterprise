@@ -3,10 +3,8 @@
 Este guia coloca o sistema completo (login, banco de dados, cursos e IA) no ar com HTTPS, para que outras pessoas
 usem pelo navegador. O GitHub Pages **não serve** para isso: ele só hospeda arquivos estáticos e o OutGPT precisa do servidor Python (banco, logins e IA).
 
-> **Status:** os arquivos de publicação (`Dockerfile`, `render.yaml`, `fly.toml`) e o modo servidor foram preparados e o
-> modo servidor foi testado localmente (primeiro acesso, cookie Secure, HSTS, proxy, limite por IP, `/saude`, backup).
-> O **build da imagem Docker e a publicação em si ainda não foram executados**: não havia Docker nem conta de
-> hospedagem no computador de desenvolvimento. Siga o passo a passo e, se algo falhar, o log da plataforma mostra o motivo.
+> **Status:** a imagem Docker e o devcontainer são construídos e testados automaticamente pelo GitHub Actions a cada envio
+> (aba *Actions* do repositório). A publicação em uma hospedagem específica depende da sua conta: se algo falhar, o log da plataforma mostra o motivo.
 
 ## O que você precisa
 | Item | Detalhe |
@@ -29,6 +27,10 @@ usem pelo navegador. O GitHub Pages **não serve** para isso: ele só hospeda ar
 | `OUTGPT_COOKIE_SECURE` ✔ | `1`: cookie de sessão só por HTTPS e cabeçalho HSTS. |
 | `OUTGPT_CONFIAR_PROXY` ✔ | `1`: usa o IP real do cliente (`X-Forwarded-For` do proxy) nos limites de tentativas. Só ative atrás de um proxy confiável. |
 
+## Opção 0: GitHub Codespaces (a mais simples, sem sair do GitHub)
+Ideal para apresentações e testes; não é hospedagem permanente (o Codespace desliga sozinho quando fica parado e usa a cota mensal da conta).
+O passo a passo está no `README.md` (seção "Rodar online pelo GitHub"). A configuração fica em `.devcontainer/` e o GitHub Actions a testa a cada envio.
+Segredos úteis (*GitHub > Settings > Codespaces > Secrets*): `ANTHROPIC_API_KEY` (chave da IA) e `OUTGPT_SETUP_TOKEN` (token do primeiro acesso; se não existir, um token é gerado e mostrado no terminal).
 ## Opção A: Render
 1. Suba o projeto para o GitHub (já está) e crie uma conta em render.com.
 2. **New > Blueprint** e escolha o repositório: o Render lê o `render.yaml` (serviço Docker, disco de 2 GB em `/data`,

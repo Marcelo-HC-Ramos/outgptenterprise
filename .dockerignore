@@ -10,3 +10,6 @@ backend/data/chroma_db
 outgpt-frontend
 outgpt-pesquisa
 *.md
+.devcontainer
+.github
+backend/tests

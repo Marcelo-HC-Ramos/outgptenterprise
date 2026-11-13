@@ -84,6 +84,12 @@ def rota(metodo, caminho, acesso="auth", limite=MAX_CORPO):
 CONFIAR_PROXY = os.environ.get("OUTGPT_CONFIAR_PROXY") == "1"   # atrás de um proxy/balanceador confiável (Render, Fly, nginx...)
 
 
+_PORTA = int(os.environ.get("OUTGPT_PORTA") or os.environ.get("PORT") or 8000)
+ORIGENS_EXTRAS = {h.strip() for h in os.environ.get("OUTGPT_ORIGENS", "").split(",") if h.strip()}   # hosts extras aceitos no cabeçalho Origin
+if os.environ.get("CODESPACE_NAME"):          # GitHub Codespaces: o proxy de portas troca o Host, mas o Origin é o endereço público
+    ORIGENS_EXTRAS.add(f"{os.environ['CODESPACE_NAME']}-{_PORTA}.{os.environ.get('GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN', 'app.github.dev')}")
+
+
 class Ctx:
     def __init__(self, con, usuario, corpo, args, query, ip):
         self.con, self.usuario, self.corpo, self.args, self.query, self.ip = con, usuario, corpo, args, query, ip
@@ -925,6 +931,14 @@ class Handler(BaseHTTPRequestHandler):
                 return xff.split(",")[-1].strip()[:64]
         return self.client_address[0]
 
+    def _origem_permitida(self, origem):
+        """O Origin de um POST/PUT/DELETE precisa ser o próprio site (Host), o host informado por um proxy confiável ou uma origem extra configurada."""
+        host = urlparse(origem).netloc
+        aceitos = {self.headers.get("Host")} | ORIGENS_EXTRAS
+        if CONFIAR_PROXY:
+            aceitos.add((self.headers.get("X-Forwarded-Host") or "").split(",")[-1].strip())
+        return host in aceitos
+
     def _json(self, codigo, obj, extra=None):
         self._enviar(codigo, json.dumps(obj, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8", extra)
 
@@ -955,7 +969,7 @@ class Handler(BaseHTTPRequestHandler):
         corpo = {}
         if metodo != "GET":
             origem = self.headers.get("Origin")           # defesa extra contra CSRF (além do SameSite=Strict)
-            if origem and urlparse(origem).netloc != self.headers.get("Host"):
+            if origem and not self._origem_permitida(origem):
                 return self._json(403, {"ok": False, "mensagem": "Origem não permitida."})
             if "application/json" not in (self.headers.get("Content-Type") or ""):
                 return self._json(415, {"ok": False, "mensagem": "Use Content-Type: application/json."})

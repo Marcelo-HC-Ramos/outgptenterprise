@@ -16,6 +16,17 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 **Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
+## Rodar online pelo GitHub (Codespaces)
+[![Abrir no GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Marcelo-HC-Ramos/outgptenterprise?quickstart=1)
+
+O GitHub Pages não executa Python, então ele não serve para o sistema real. O que o GitHub oferece para rodar tudo (banco, login e IA) é o **Codespaces**: um computador na nuvem ligado a este repositório, com endereço HTTPS.
+1. (Opcional, antes de criar) Em *GitHub > Settings > Codespaces > Secrets*, crie o segredo `ANTHROPIC_API_KEY` com a chave da IA e libere este repositório para ele.
+2. Clique no botão acima (ou *Code > Codespaces > Create codespace on main*) e aguarde alguns minutos: ele instala tudo, cria a empresa com os 100 procedimentos e liga o servidor sozinho.
+3. No terminal aparece o **endereço do sistema** e o **token de primeiro acesso**. Abra o endereço, preencha "Primeiro acesso" (seu e-mail e senha) e entre.
+4. Para qualquer pessoa abrir o link: aba **PORTAS** > botão direito na porta 8000 > *Visibilidade da porta* > **Pública**.
+
+Limites: o Codespace **desliga sozinho** depois de um tempo sem uso (basta abri-lo de novo; o servidor liga junto e os dados continuam lá), usa a cota gratuita mensal da sua conta (confira em github.com/settings/billing) e é apagado após dias parado. Serve bem para apresentações e testes; para uso permanente, veja o `DEPLOY.md`.
+O GitHub Actions testa automaticamente o sistema, a imagem Docker e esta configuração a cada envio (aba *Actions*).
 ## O que a plataforma faz
 - Cada **empresa** cadastra seus conteúdos (procedimentos, manuais, FAQs; digitados, em CSV ou enviados como TXT/MD/PDF/DOCX) e seus usuários.
 - **Cursos:** cada categoria de conteúdo vira um curso automático (lições, perguntas de verificação e progresso por usuário); o admin também monta **cursos personalizados** escolhendo e ordenando lições, e pode gerar as perguntas de verificação com a IA. Ao concluir um curso, o usuário emite um **certificado** imprimível, com código verificável em `/verificar.html`.

@@ -22,8 +22,8 @@ COPY backend backend
 COPY docs docs
 
 # /data é o volume persistente (banco SQLite, índice de busca e a chave da API salva pela tela de administração)
-RUN useradd --create-home app && mkdir -p /data && chown -R app:app /data /app
-USER app
+COPY docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN useradd --create-home app && mkdir -p /data && chown -R app:app /data /app && chmod +x /app/docker-entrypoint.sh
 VOLUME /data
 WORKDIR /app/backend
 EXPOSE 8000
@@ -31,5 +31,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s \
   CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/saude' % (os.environ.get('PORT') or '8000'))" || exit 1
 
-# Cria/atualiza o banco e inicia o servidor. A porta vem da variável PORT (a hospedagem define) ou 8000.
-CMD ["sh", "-c", "python init_db.py && python server.py"]
+# O entrypoint ajusta a permissão de /data, cria/atualiza o banco e inicia o servidor como usuário comum.
+# A porta vem da variável PORT (a hospedagem define) ou 8000.
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

@@ -1,0 +1,73 @@
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FASTEMBED_CACHE_PATH: ${{ github.workspace }}/.fastembed
+
+jobs:
+  sistema:
+    name: Testes do sistema (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Instalar bibliotecas
+        run: pip install -r backend/requirements.txt fpdf2
+      - name: Guardar o modelo de busca em cache
+        uses: actions/cache@v4
+        with:
+          path: .fastembed
+          key: modelo-busca-multilingual-v1
+      - name: Rodar os testes
+        run: |
+          set -o pipefail
+          python backend/tests/teste_sistema.py 2>&1 | tee /tmp/saida.txt
+      - name: Resumo da falha
+        if: failure()
+        run: echo "::error title=Testes falharam::$(grep -E 'FAIL|Traceback|Error|falhas' /tmp/saida.txt | head -n 25 | tr '\n' '|')"
+
+  docker:
+    name: Imagem Docker (publicação)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir a imagem
+        run: docker build -t outgpt .
+      - name: Subir o contêiner (volume com dono root, como nas hospedagens)
+        run: |
+          sudo mkdir -p /tmp/dados_ci && sudo chown root:root /tmp/dados_ci && sudo chmod 755 /tmp/dados_ci
+          docker run -d --name outgpt -p 8000:8000 -v /tmp/dados_ci:/data -e OUTGPT_SETUP_TOKEN=token-de-ci-123456 outgpt
+      - name: Esperar o servidor responder
+        run: |
+          for i in $(seq 1 90); do curl -fs http://127.0.0.1:8000/saude >/dev/null 2>&1 && exit 0; sleep 2; done
+          echo "::error title=Contêiner não respondeu::$(docker logs outgpt 2>&1 | tail -n 30 | tr '\n' '|')"
+          exit 1
+      - name: Verificar o servidor publicado
+        run: OUTGPT_SETUP_TOKEN=token-de-ci-123456 python backend/tests/verificar_publicacao.py http://127.0.0.1:8000 --criar-master
+      - name: O banco foi gravado no volume
+        run: test -s /tmp/dados_ci/outgpt.db
+      - name: Log do contêiner (se falhou)
+        if: failure()
+        run: echo "::error title=Log do contêiner::$(docker logs outgpt 2>&1 | tail -n 30 | tr '\n' '|')"
+
+  devcontainer:
+    name: Codespaces (devcontainer)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construir o devcontainer e verificar o servidor
+        uses: devcontainers/ci@v0.3
+        with:
+          runCmd: bash .devcontainer/verificar.sh
