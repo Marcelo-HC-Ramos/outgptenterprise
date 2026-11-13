@@ -38,7 +38,6 @@ SITE = {  # lista fixa: nenhum outro arquivo é exposto
     "/index.html": ("index.html", "text/html; charset=utf-8", CSP_APP),
     "/styles.css": ("styles.css", "text/css; charset=utf-8", CSP_APP),
     "/app.js": ("app.js", "text/javascript; charset=utf-8", CSP_APP),
-    "/dados.js": ("dados.js", "text/javascript; charset=utf-8", CSP_APP),
     "/pesquisa.html": ("pesquisa.html", "text/html; charset=utf-8", CSP_PESQUISA),
     "/verificar.html": ("verificar.html", "text/html; charset=utf-8", CSP_PESQUISA),
 }

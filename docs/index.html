@@ -18,6 +18,17 @@
       <button class="btn primary" id="login-btn">Entrar</button>
       <small class="muted center">Acesso restrito a usuários cadastrados pela sua empresa.</small>
     </form>
+    <div class="login-card hidden" id="offline-card">
+      <div class="brand center"><span class="brand-mark">O</span><span class="logo">Out<span>GPT</span></span></div>
+      <h2 class="center">Servidor não encontrado</h2>
+      <p class="muted center" id="offline-msg"></p>
+      <ol class="passos" id="offline-passos">
+        <li>Abra a pasta do projeto e dê dois cliques em <strong>INICIAR.bat</strong>.</li>
+        <li>Na primeira vez, responda às perguntas da janela preta (seu login e a chave da IA).</li>
+        <li>O navegador abrirá em <strong>http://localhost:8000</strong>. Use sempre esse endereço.</li>
+      </ol>
+      <button class="btn primary" id="offline-retry">Tentar novamente</button>
+    </div>
     <form class="login-card hidden" id="setup-form">
       <div class="brand center"><span class="brand-mark">O</span><span class="logo">Out<span>GPT</span></span></div>
       <h2 class="center">Primeiro acesso</h2>
@@ -56,7 +67,6 @@
       <button class="theme-btn" id="theme" title="Alternar tema">🌙 Modo escuro</button>
     </aside>
     <main class="main">
-      <div id="banner-demo" class="alerta demo hidden">🧪 Modo demonstração: sem login e sem IA — o assistente mostra o trecho do manual encontrado. Rode o servidor do projeto para usar o banco de dados, os logins e a IA.</div>
       <div id="view" class="view" tabindex="-1"></div>
     </main>
   </div>

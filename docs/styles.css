@@ -140,7 +140,7 @@ code{background:var(--soft);padding:1px 6px;border-radius:6px}
 /* Alertas */
 .alerta{margin:14px 0;padding:12px 14px;border-radius:12px;font-size:.92rem;font-weight:500}
 .alerta.bad{background:rgba(239,68,68,.13);color:var(--bad)}
-.alerta.demo{background:rgba(245,158,11,.14);color:var(--warn)}
+.alerta.aviso{background:rgba(245,158,11,.14);color:var(--warn)}
 .main{min-width:0;display:flex;flex-direction:column}
 .main>.alerta{margin:14px 40px 0}
 

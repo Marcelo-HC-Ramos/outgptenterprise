@@ -10,7 +10,7 @@ Como funciona
 
 Uso (linha de comando):
   python rag.py reindexar                                   # recria todo o índice a partir do SQLite
-  python rag.py importar "Empresa Demo" data/sops_corporativos.csv [todos|internos]
+  python rag.py importar "Minha Empresa" data/sops_corporativos.csv [todos|internos]
 CSV: id, categoria, procedimento_titulo, contexto_documental, pergunta_utilizador, resposta_esperada, contem_pii
 """
 import csv

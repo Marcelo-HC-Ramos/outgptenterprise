@@ -1,13 +1,12 @@
 /* OutGPT Enterprise - front-end
- * Com o servidor Python há login, banco SQLite, cursos por empresa e IA. Sem ele (GitHub Pages ou arquivo local)
- * roda em modo demonstração, com o conteúdo de exemplo de demo_conteudos.js. */
+ * Fala com o servidor do projeto (login, banco SQLite, cursos por empresa e IA). Sem o servidor, mostra como iniciá-lo. */
 "use strict";
 
 // ---------- Utilidades ----------
 const $ = (s, el = document) => el.querySelector(s);
 const view = $("#view");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const estado = { usuario: null, demo: false, empresas: [], empresaId: null };
+const estado = { usuario: null, empresas: [], empresaId: null };
 const ROTULOS = { master: "Master (dono)", admin: "Administrador", funcionario: "Funcionário", colaborador_interno: "Colaborador interno", colaborador_externo: "Colaborador externo" };
 const ehAdmin = () => ["master", "admin"].includes(estado.usuario?.tipo);
 const ehMaster = () => estado.usuario?.tipo === "master";
@@ -49,104 +48,16 @@ async function api(url, opts = {}) {
 }
 const qEmpresa = () => ehMaster() && estado.empresaId ? `?empresa_id=${estado.empresaId}` : "";
 
-// ---------- Modo demonstração (sem servidor): cursos, quiz e busca sobre o conteúdo de exemplo ----------
-const Demo = (() => {
-  const PARTE_MAX = 12, KEY = "outgpt_demo_prog";
-  const dados = () => window.DEMO_CONTEUDOS || [];
-  const prog = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
-  const salvar = p => { try { localStorage.setItem(KEY, JSON.stringify(p)); } catch { /* sem armazenamento */ } };
-  const minutos = t => Math.max(1, Math.ceil((t.match(/\w+/g) || []).length / 180));
-  const hash = s => { let h = 2166136261; for (const ch of s) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; };
-  const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-  const embaralhar = (a, r) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-  const semAcento = s => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-  const STOP = new Set("a o as os um uma de da do das dos em no na nos nas ao aos para por pra com sem sobre entre que qual quais quanto quantos como quando onde quem e ou se mas ser sao foi tem ter tenho posso preciso devo fazer faco minha meu isso esse essa este esta ha ja mais muito existe".split(" "));
-  const termos = p => semAcento(p).match(/[a-z0-9]+/g)?.filter(t => t.length >= 3 && !STOP.has(t)) || [];
-  const radical = t => t.length >= 5 ? t.slice(0, Math.max(4, t.length - 2)) : t;
-
-  function cursos() {
-    const porCat = new Map();
-    dados().forEach((c, i) => { if (c.texto.length <= 6000) { if (!porCat.has(c.categoria)) porCat.set(c.categoria, []); porCat.get(c.categoria).push({ ...c, n: i + 1 }); } });
-    const out = []; let id = 0;
-    for (const [cat, itens] of porCat) {
-      const partes = Math.ceil(itens.length / PARTE_MAX), tam = Math.ceil(itens.length / partes);
-      for (let p = 0; p < partes; p++) out.push({ id: ++id, titulo: partes === 1 ? cat : `${cat} · Parte ${p + 1} de ${partes}`, descricao: `Procedimentos e regras de ${cat} da sua empresa.`,
-        categoria: cat, nivel: p === 0 ? "Iniciante" : "Intermediário", itens: itens.slice(p * tam, (p + 1) * tam) });
-    }
-    return out;
-  }
-  function quiz(c) {
-    if (!c.pergunta || !c.resposta) return null;
-    const r = rng(hash("quiz:" + c.codigo)), certa = c.resposta.trim(), vistos = new Set([certa]), mesma = [], resto = [];
-    for (const o of dados()) {
-      const t = (o.resposta || "").trim();
-      if (o.codigo === c.codigo || !t || vistos.has(t)) continue;
-      vistos.add(t); (o.categoria === c.categoria ? mesma : resto).push(t);
-    }
-    const opcoes = embaralhar([...embaralhar(mesma, r), ...embaralhar(resto, r)].slice(0, 3).concat(certa), r);
-    return { pergunta: c.pergunta, opcoes, indice: opcoes.indexOf(certa) };
-  }
-  const resumoCurso = (c, p) => {
-    const feitas = c.itens.filter(i => i.codigo in p), resp = feitas.filter(i => p[i.codigo] !== null);
-    const prox = c.itens.find(i => !(i.codigo in p));
-    return { id: c.id, titulo: c.titulo, descricao: c.descricao, categoria: c.categoria, nivel: c.nivel, licoes: c.itens.length, concluidas: feitas.length,
-      respondidas: resp.length, acertos: resp.filter(i => p[i.codigo] === 1).length, minutos: c.itens.reduce((s, i) => s + minutos(i.texto), 0),
-      ultima: feitas.length ? "1" : null, proxima: prox ? { conteudo_id: prox.n, titulo: prox.titulo } : null, percentual: Math.round(100 * feitas.length / c.itens.length) };
-  };
-  return {
-    async cursos() {
-      const p = prog(), itens = cursos().map(c => resumoCurso(c, p));
-      const abertos = itens.filter(c => c.proxima), andamento = abertos.filter(c => c.concluidas), esc_ = (andamento[0] || abertos[0]);
-      const licoes = itens.reduce((s, c) => s + c.licoes, 0), feitas = itens.reduce((s, c) => s + c.concluidas, 0);
-      return { itens, pode_editar: false, resumo: { cursos: itens.length, cursos_concluidos: itens.filter(c => c.percentual === 100).length, licoes, concluidas: feitas,
-        percentual: licoes ? Math.round(100 * feitas / licoes) : 0, respondidas: itens.reduce((s, c) => s + c.respondidas, 0), acertos: itens.reduce((s, c) => s + c.acertos, 0),
-        continuar: esc_ ? { curso_id: esc_.id, curso: esc_.titulo, conteudo_id: esc_.proxima.conteudo_id, licao: esc_.proxima.titulo, percentual: esc_.percentual } : null } };
-    },
-    async curso(id) {
-      const c = cursos().find(x => x.id === +id); if (!c) throw new Error("Curso não encontrado.");
-      const p = prog(), licoes = c.itens.map(i => { const q = quiz(i); return { conteudo_id: i.n, codigo: i.codigo, titulo: i.titulo, texto: i.texto, minutos: minutos(i.texto),
-        concluida: i.codigo in p, acertou: i.codigo in p && p[i.codigo] !== null ? p[i.codigo] === 1 : null, quiz: q ? { pergunta: q.pergunta, opcoes: q.opcoes } : null }; });
-      const feitas = licoes.filter(l => l.concluida).length;
-      return { id: c.id, titulo: c.titulo, descricao: c.descricao, categoria: c.categoria, nivel: c.nivel, licoes, concluidas: feitas, percentual: Math.round(100 * feitas / licoes.length) };
-    },
-    async concluir(_cid, lid) { const c = dados()[lid - 1], p = prog(); if (c && !(c.codigo in p)) { p[c.codigo] = null; salvar(p); } return { ok: true }; },
-    async responder(_cid, lid, opcao) {
-      const c = dados()[lid - 1], q = c && quiz(c); if (!q) throw new Error("Pergunta não encontrada.");
-      const p = prog(); if (!(c.codigo in p) || p[c.codigo] === null) { p[c.codigo] = opcao === q.indice ? 1 : 0; salvar(p); }
-      return { correta: opcao === q.indice, indice_correto: q.indice, resposta_certa: q.opcoes[q.indice] };
-    },
-    async sugestoes() { return { itens: embaralhar(dados().filter(c => c.pergunta).map(c => c.pergunta), Math.random).slice(0, 6) }; },
-    async conteudos() {
-      const itens = dados().map((c, i) => ({ id: i + 1, codigo: c.codigo, titulo: c.titulo, categoria: c.categoria, resumo: c.texto.slice(0, 300), tamanho: c.texto.length,
-        visibilidade: "todos", contem_pii: 0, arquivo_nome: null, pergunta_exemplo: c.pergunta }));
-      return { total: itens.length, categorias: [...new Set(itens.map(c => c.categoria))].sort(), itens, pode_editar: false };
-    },
-    async conteudo(id) { const c = dados()[id - 1]; return { id, codigo: c.codigo, titulo: c.titulo, categoria: c.categoria, texto: c.texto, visibilidade: "todos" }; },
-    async chat(pergunta) {   // busca por palavras-chave no conteúdo de exemplo (sem IA)
-      const ts = [...new Set(termos(pergunta))]; if (!ts.length) return semResposta();
-      const docs = dados().map((c, i) => ({ c, n: i + 1, norm: semAcento(`${c.titulo} ${c.texto} ${c.pergunta || ""}`) }));
-      const df = t => docs.filter(d => d.norm.includes(radical(t))).length || 1;
-      const pont = docs.map(d => { let s = 0, casados = 0; for (const t of ts) if (d.norm.includes(radical(t))) { casados++; s += Math.log(1 + docs.length / df(t)); } return { ...d, s, casados }; })
-        .filter(d => d.casados >= Math.min(2, ts.length) && d.casados / ts.length >= 0.5).sort((a, b) => b.s - a.s);
-      if (!pont.length) return semResposta();
-      const t = pont[0];
-      return { encontrado: true, gerado_por_ia: false, resposta: `Com base em «${t.c.titulo}» (${t.c.codigo}):\n\n${t.c.texto}`, pii_mascaradas: [],
-        fontes: [{ conteudo_id: t.n, codigo: t.c.codigo, titulo: t.c.titulo, categoria: t.c.categoria }] };
-    },
-  };
-  function semResposta() { return { encontrado: false, gerado_por_ia: false, fontes: [], pii_mascaradas: [], resposta: "Não encontrei essa informação nos conteúdos de exemplo." }; }
-})();
-
-// Acesso aos dados: servidor (SQLite + IA) ou demonstração
+// Acesso aos dados (servidor: SQLite + IA)
 const Dados = {
-  cursos: () => estado.demo ? Demo.cursos() : api("/api/cursos" + qEmpresa()),
-  curso: id => estado.demo ? Demo.curso(id) : api(`/api/cursos/${id}${qEmpresa()}`),
-  concluir: (c, l) => estado.demo ? Demo.concluir(c, l) : api(`/api/cursos/${c}/licoes/${l}/concluir${qEmpresa()}`, { method: "POST" }),
-  responder: (c, l, opcao) => estado.demo ? Demo.responder(c, l, opcao) : api(`/api/cursos/${c}/licoes/${l}/responder${qEmpresa()}`, { method: "POST", body: { opcao } }),
-  sugestoes: () => estado.demo ? Demo.sugestoes() : api("/api/sugestoes" + qEmpresa()),
-  conteudos: () => estado.demo ? Demo.conteudos() : api("/api/conteudos" + qEmpresa()),
-  conteudo: id => estado.demo ? Demo.conteudo(id) : api(`/api/conteudos/${id}`),
-  chat: (pergunta, historico, aoTexto) => estado.demo ? Demo.chat(pergunta) : chatStream(pergunta, historico, aoTexto),
+  cursos: () => api("/api/cursos" + qEmpresa()),
+  curso: id => api(`/api/cursos/${id}${qEmpresa()}`),
+  concluir: (c, l) => api(`/api/cursos/${c}/licoes/${l}/concluir${qEmpresa()}`, { method: "POST" }),
+  responder: (c, l, opcao) => api(`/api/cursos/${c}/licoes/${l}/responder${qEmpresa()}`, { method: "POST", body: { opcao } }),
+  sugestoes: () => api("/api/sugestoes" + qEmpresa()),
+  conteudos: () => api("/api/conteudos" + qEmpresa()),
+  conteudo: id => api(`/api/conteudos/${id}`),
+  chat: (pergunta, historico, aoTexto) => chatStream(pergunta, historico, aoTexto),
 };
 
 // Resposta em tempo real: lê os eventos (SSE) de /api/chat/stream e chama aoTexto a cada pedaço de texto
@@ -224,26 +135,24 @@ function entrar(usuario) {
   $("#user-nome").textContent = usuario.nome;
   $("#user-papel").textContent = ROTULOS[usuario.tipo] + (usuario.empresa ? " · " + usuario.empresa : "");
   $("#avatar").textContent = usuario.nome.split(/\s+/).map(p => p[0]).slice(0, 2).join("").toUpperCase();
-  $("#banner-demo").classList.toggle("hidden", !estado.demo);
-  $(".user-acoes").classList.toggle("hidden", estado.demo);
   document.querySelectorAll("#nav a").forEach(a => {
     const so = a.dataset.so;   // restrição de perfil: "admin" (master + admin) | "master"
-    a.classList.toggle("hidden", Boolean((so === "admin" && !ehAdmin()) || (so === "master" && !ehMaster()) || (a.dataset.servidor && estado.demo)));
+    a.classList.toggle("hidden", Boolean((so === "admin" && !ehAdmin()) || (so === "master" && !ehMaster())));
   });
-  $("#nav-admin").classList.toggle("hidden", !ehAdmin() || estado.demo);
+  $("#nav-admin").classList.toggle("hidden", !ehAdmin());
   carregarEmpresas().finally(render);
 }
 async function carregarEmpresas() {
-  if (estado.demo || !ehMaster()) return;
+  if (!ehMaster()) return;
   try { estado.empresas = (await api("/api/empresas")).itens; } catch { estado.empresas = []; }
   if (!estado.empresas.some(e => e.id === estado.empresaId)) estado.empresaId = estado.empresas[0]?.id ?? null;
 }
 // Seletor de empresa (o master administra várias)
 const seletorEmpresa = () => !ehMaster() ? "" : estado.empresas.length
   ? `<label class="seletor">Empresa <select id="sel-empresa">${estado.empresas.map(e => `<option value="${e.id}" ${e.id === estado.empresaId ? "selected" : ""}>${esc(e.nome)}</option>`).join("")}</select></label>`
-  : `<span class="alerta demo">Crie uma empresa primeiro (menu Empresas).</span>`;
+  : `<span class="alerta aviso">Crie uma empresa primeiro (menu Empresas).</span>`;
 function ligarSeletorEmpresa(fn) { const s = $("#sel-empresa"); if (s) s.onchange = () => { estado.empresaId = +s.value; fn(); }; }
-const semEmpresa = () => ehMaster() && !estado.empresaId && !estado.demo;
+const semEmpresa = () => ehMaster() && !estado.empresaId;
 const avisoSemEmpresa = () => `<div class="card vazio"><div class="vazio-ico">🏢</div><h2>Comece criando uma empresa</h2><p class="muted">Cada empresa tem seus próprios usuários, conteúdos e cursos.</p><a class="btn primary" href="#/empresas">Criar empresa</a></div>`;
 
 $("#login-form").addEventListener("submit", async e => {
@@ -283,15 +192,27 @@ $("#setup-form").addEventListener("submit", async e => {
   } catch (err) { erro.textContent = err.message; erro.classList.remove("hidden"); }
   btn.disabled = false;
 });
-const carregarScript = src => new Promise((ok, falha) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = falha; document.head.appendChild(s); });
+// Sem servidor: explica como iniciar o sistema (não há versão simulada)
+function mostrarOffline() {
+  estado.usuario = null;
+  $("#app").classList.add("hidden");
+  $("#login").classList.remove("hidden");
+  $("#login-form").classList.add("hidden"); $("#setup-form").classList.add("hidden");
+  $("#offline-card").classList.remove("hidden");
+  const arquivo = location.protocol === "file:";
+  $("#offline-msg").innerHTML = arquivo
+    ? "Você abriu o arquivo diretamente. O OutGPT precisa do servidor do projeto para funcionar: ele guarda o banco de dados, os logins e liga a IA."
+    : "O servidor do OutGPT não respondeu. Pode estar desligado ou reiniciando; tente novamente em instantes.";
+  $("#offline-passos").classList.toggle("hidden", !arquivo);
+}
+$("#offline-retry").onclick = () => location.reload();
+
 async function iniciar() {
   let r = null;
   if (location.protocol !== "file:") { try { r = await fetch("/api/eu", { credentials: "same-origin" }); } catch { r = null; } }
   if (r && r.ok) return entrar(await r.json());                         // servidor + sessão ativa
   if (r && r.status === 401) { await verificarPrimeiroAcesso(); return mostrarLogin(); }   // servidor, sem sessão
-  estado.demo = true;                                                    // sem servidor: demonstração
-  try { await carregarScript("demo_conteudos.js"); } catch { /* sem conteúdo de exemplo */ }
-  entrar({ nome: "Visitante", tipo: "funcionario", empresa: "Demonstração", llm: false });
+  mostrarOffline();                                                      // sem servidor
 }
 
 // ---------- Rotas ----------
@@ -302,7 +223,7 @@ function render() {
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.route === rota || (rota === "curso" && a.dataset.route === "cursos")));
   const telas = { inicio: telaInicio, cursos: telaCursos, curso: () => telaCurso(+a1, +a2 || null), chat: telaChat, historico: telaHistorico,
     biblioteca: telaBiblioteca, usuarios: telaUsuarios, lacunas: telaLacunas, empresas: telaEmpresas, ia: telaIA, sobre: telaSobre };
-  const exige = { usuarios: ehAdmin() && !estado.demo, lacunas: ehAdmin() && !estado.demo, empresas: ehMaster() && !estado.demo, ia: ehMaster() && !estado.demo };
+  const exige = { usuarios: ehAdmin(), lacunas: ehAdmin(), empresas: ehMaster(), ia: ehMaster() };
   view.style.animation = "none"; view.offsetHeight; view.style.animation = "";
   ((rota in exige && !exige[rota]) ? telaInicio : (telas[rota] || telaInicio))();
   scrollTo(0, 0);
@@ -328,7 +249,7 @@ async function telaInicio() {
   ligarSeletorEmpresa(telaInicio);
   $("#busca").onsubmit = e => { e.preventDefault(); pendente = $("#busca-q").value.trim(); location.hash = "#/chat"; };
   Dados.sugestoes().then(d => { $("#sug").innerHTML = d.itens.slice(0, 4).map(s => `<button class="chip" data-q="${esc(s)}">${esc(s)}</button>`).join(""); view.querySelectorAll("#sug .chip").forEach(c => c.onclick = () => { pendente = c.dataset.q; location.hash = "#/chat"; }); }).catch(() => {});
-  if (ehAdmin() && !estado.demo) painelAdmin();
+  if (ehAdmin()) painelAdmin();
   try {
     const d = await Dados.cursos(), r = d.resumo;
     if (!d.itens.length) {
@@ -356,9 +277,9 @@ async function painelAdmin() {
   try {
     const p = await api("/api/painel" + qEmpresa());
     let ia = "";
-    if (ehMaster()) { const s = await api("/api/llm"); ia = s.configurada ? `<span class="badge ok">🤖 IA ativa · ${esc(s.modelo)}</span>` : `<a class="alerta demo" href="#/ia">⚠️ A IA ainda não está ligada. Configure a chave da API →</a>`; }
+    if (ehMaster()) { const s = await api("/api/llm"); ia = s.configurada ? `<span class="badge ok">🤖 IA ativa · ${esc(s.modelo)}</span>` : `<a class="alerta aviso" href="#/ia">⚠️ A IA ainda não está ligada. Configure a chave da API →</a>`; }
     box.innerHTML = `<div class="card painel"><div class="painel-topo"><h2>Painel da empresa</h2>${ia}</div>
-      <div class="painel-nums"><div><b>${p.usuarios}</b><small>usuários ativos</small></div><div><b>${p.conteudos}</b><small>conteúdos</small></div><div><b>${p.cursos}</b><small>cursos</small></div><div><b>${p.perguntas_7d}</b><small>perguntas em 7 dias</small></div><div><b>${p.satisfacao === null ? "—" : p.satisfacao + "%"}</b><small>respostas úteis</small></div></div>${p.lacunas ? `<a class="alerta demo" href="#/lacunas">🔎 ${p.lacunas} pergunta(s) sem resposta: cadastre conteúdo para cobrir →</a>` : ""}
+      <div class="painel-nums"><div><b>${p.usuarios}</b><small>usuários ativos</small></div><div><b>${p.conteudos}</b><small>conteúdos</small></div><div><b>${p.cursos}</b><small>cursos</small></div><div><b>${p.perguntas_7d}</b><small>perguntas em 7 dias</small></div><div><b>${p.satisfacao === null ? "—" : p.satisfacao + "%"}</b><small>respostas úteis</small></div></div>${p.lacunas ? `<a class="alerta aviso" href="#/lacunas">🔎 ${p.lacunas} pergunta(s) sem resposta: cadastre conteúdo para cobrir →</a>` : ""}
       <div class="painel-acoes"><button class="btn" data-acao="arquivo">⬆ Enviar arquivo</button><button class="btn" data-acao="novo">+ Novo conteúdo</button><a class="btn" href="#/usuarios">👥 Cadastrar usuário</a></div></div>`;
     box.querySelectorAll("[data-acao]").forEach(b => b.onclick = () => { acaoPendente = b.dataset.acao; location.hash = "#/biblioteca"; });
   } catch { /* painel é opcional */ }
@@ -371,7 +292,7 @@ async function telaCursos() {
   ligarSeletorEmpresa(telaCursos);
   let d; try { d = await Dados.cursos(); } catch (err) { return erroTela(err); }
   const cats = [...new Set(d.itens.filter(c => c.categoria).map(c => c.categoria))], temPers = d.itens.some(c => c.personalizado);
-  const acoes = (estado.demo ? "" : `<button class="btn" id="meus-cert">🎓 Certificados</button>`) + (d.pode_editar ? `<button class="btn" id="sinc" title="Cria cursos para categorias novas e inclui conteúdos novos">↻ Atualizar cursos</button><button class="btn primary" id="novo-curso">+ Curso personalizado</button>` : "");
+  const acoes = `<button class="btn" id="meus-cert">🎓 Certificados</button>` + (d.pode_editar ? `<button class="btn" id="sinc" title="Cria cursos para categorias novas e inclui conteúdos novos">↻ Atualizar cursos</button><button class="btn primary" id="novo-curso">+ Curso personalizado</button>` : "");
   view.innerHTML = cabecalho("Cursos", `${d.itens.length} cursos · ${d.resumo.licoes} lições · ${d.resumo.percentual}% concluído`, acoes) + (d.itens.length ? `
     <div class="chips-linha"><button class="chip on" data-cat="">Todos</button>${cats.map(c => `<button class="chip" data-cat="${esc(c)}">${iconeDe(c)} ${esc(c)}</button>`).join("")}${temPers ? `<button class="chip" data-cat="__pers">⭐ Personalizados</button>` : ""}</div>
     <div class="grid" id="lista-cursos"></div>` : `<div class="card vazio"><div class="vazio-ico">🎓</div><h2>Ainda não há cursos</h2><p class="muted">Cadastre conteúdos na Biblioteca para gerar cursos.</p></div>`);
@@ -444,8 +365,8 @@ async function telaCurso(id, licaoId) {
     });
   };
   const semQuiz = () => c.licoes.filter(l => !l.quiz);
-  const bannerQuiz = () => (ehAdmin() && !estado.demo && semQuiz().length)
-    ? `<div class="alerta demo banner-quiz"><span>${semQuiz().length} lição(ões) sem pergunta de verificação.</span>${estado.usuario.llm ? `<button class="btn mini" id="gerar-quiz">🤖 Gerar com IA</button>` : `<a href="#/ia">Ligue a IA para gerar →</a>`}</div>` : "";
+  const bannerQuiz = () => (ehAdmin() && semQuiz().length)
+    ? `<div class="alerta aviso banner-quiz"><span>${semQuiz().length} lição(ões) sem pergunta de verificação.</span>${estado.usuario.llm ? `<button class="btn mini" id="gerar-quiz">🤖 Gerar com IA</button>` : `<a href="#/ia">Ligue a IA para gerar →</a>`}</div>` : "";
   const gerarQuiz = async () => {
     const lista = semQuiz();
     if (!(await confirmar(`Gerar perguntas de verificação com a IA para ${lista.length} lição(ões)? Será feita uma chamada à IA por lição.`))) return;
@@ -460,7 +381,7 @@ async function telaCurso(id, licaoId) {
     telaCurso(id, c.licoes[atual]?.conteudo_id);
   };
   const finalCurso = () => { const resp = c.licoes.filter(x => x.acertou !== null), ac = resp.filter(x => x.acertou).length;
-    return `<div class="card parabens"><div class="vazio-ico">🎉</div><h2>Curso concluído!</h2><p class="muted">Você completou as ${c.licoes.length} lições${resp.length ? ` e acertou ${ac} de ${resp.length} perguntas` : ""}.</p>${estado.demo ? "" : `<button class="btn primary" id="emitir-cert">🎓 Emitir certificado</button> `}<a class="btn" href="#/cursos">Ver outros cursos</a></div>`; };
+    return `<div class="card parabens"><div class="vazio-ico">🎉</div><h2>Curso concluído!</h2><p class="muted">Você completou as ${c.licoes.length} lições${resp.length ? ` e acertou ${ac} de ${resp.length} perguntas` : ""}.</p><button class="btn primary" id="emitir-cert">🎓 Emitir certificado</button> <a class="btn" href="#/cursos">Ver outros cursos</a></div>`; };
   desenhar();
 }
 
@@ -524,7 +445,7 @@ async function listarCertificados() {
 async function telaChat() {
   if (semEmpresa()) { view.innerHTML = cabecalho("Assistente", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaChat); return; }
   const u = estado.usuario;
-  const status = estado.demo ? `<span class="badge warn">Demonstração · sem IA</span>` : u.llm ? `<span class="badge ok">🤖 IA ativa · ${esc(u.modelo)}</span>` : `<span class="badge warn">🔎 Só busca (IA não configurada)</span>`;
+  const status = u.llm ? `<span class="badge ok">🤖 IA ativa · ${esc(u.modelo)}</span>` : `<span class="badge warn">🔎 Só busca (IA não configurada)</span>`;
   view.innerHTML = cabecalho("Assistente OutGPT", `Respostas baseadas só nos conteúdos da empresa, com fonte citada. ${status}`, `<button class="btn" id="nova">+ Nova conversa</button>`) + `
     <div class="card chat">
       <div class="messages" id="msgs" aria-live="polite"></div>
@@ -539,7 +460,7 @@ async function telaChat() {
   const mostrarFontes = fontes => fontes.map(f => `<button class="cite" data-fonte="${esc(f.conteudo_id)}" title="Abrir o conteúdo">📎 ${esc(f.codigo)} · ${esc(f.titulo)}</button>`).join("");
   const perguntar = async texto => {
     add("user", esc(texto));
-    const w = add("bot typing", estado.demo ? "Buscando nos conteúdos..." : "Consultando os conteúdos e preparando a resposta...");
+    const w = add("bot typing", "Consultando os conteúdos e preparando a resposta...");
     let acumulado = "", agendado = false, finalizado = false;
     const aoTexto = t => {        // mostra o texto aos poucos (no máximo um redesenho a cada 40 ms)
       acumulado += t;
@@ -551,7 +472,7 @@ async function telaChat() {
       const r = await Dados.chat(texto, conversa, aoTexto);
       finalizado = true;
       w.className = "msg bot";
-      const selo = r.gerado_por_ia ? `<span class="selo">🤖 Resposta gerada por IA a partir dos conteúdos</span>` : r.encontrado ? `<span class="selo">🔎 Trecho do manual${estado.demo ? " (demonstração)" : ""}</span>` : "";
+      const selo = r.gerado_por_ia ? `<span class="selo">🤖 Resposta gerada por IA a partir dos conteúdos</span>` : r.encontrado ? `<span class="selo">🔎 Trecho do manual</span>` : "";
       w.innerHTML = md(r.resposta) + (r.fontes.length ? `<div class="cites">${mostrarFontes(r.fontes)}</div>` : "") + (selo ? `<div class="cites">${selo}</div>` : "")
         + (r.aviso ? `<div class="nota">ℹ️ ${esc(r.aviso)}</div>` : "")
         + (r.pii_mascaradas?.length ? `<div class="nota">🔒 Dados sensíveis mascarados antes da consulta: ${esc(r.pii_mascaradas.join(", "))}</div>` : "");
@@ -580,7 +501,6 @@ async function avaliar(box, id, nota) {
 }
 // ---------- Histórico ----------
 async function telaHistorico() {
-  if (estado.demo) { view.innerHTML = cabecalho("Histórico de dúvidas", "Disponível quando o servidor está ativo.") + `<div class="card vazio"><div class="vazio-ico">🕘</div><p class="muted">O histórico das suas perguntas é guardado no banco de dados da empresa.</p></div>`; return; }
   if (semEmpresa()) { view.innerHTML = cabecalho("Histórico", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaHistorico); return; }
   view.innerHTML = cabecalho("Histórico de dúvidas", ehAdmin() ? "Perguntas feitas na empresa (gravadas já anonimizadas)." : "Suas perguntas ao assistente.") + `<div class="card" id="hist">Carregando...</div>`;
   ligarSeletorEmpresa(telaHistorico);

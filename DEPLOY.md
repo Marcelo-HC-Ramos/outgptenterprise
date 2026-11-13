@@ -1,7 +1,7 @@
 # Publicar o OutGPT na internet
 
 Este guia coloca o sistema completo (login, banco de dados, cursos e IA) no ar com HTTPS, para que outras pessoas
-usem pelo navegador. O GitHub Pages **não serve** para isso: ele só hospeda a demonstração (sem Python).
+usem pelo navegador. O GitHub Pages **não serve** para isso: ele só hospeda arquivos estáticos e o OutGPT precisa do servidor Python (banco, logins e IA).
 
 > **Status:** os arquivos de publicação (`Dockerfile`, `render.yaml`, `fly.toml`) e o modo servidor foram preparados e o
 > modo servidor foi testado localmente (primeiro acesso, cookie Secure, HSTS, proxy, limite por IP, `/saude`, backup).
@@ -83,6 +83,11 @@ pelo arquivo de backup e inicie de novo. Faça backups com frequência: um disco
 - **Atualizações:** `git pull` + novo deploy; o banco é atualizado sozinho na inicialização (`init_db.py`).
 - **Monitoramento:** o endereço `/saude` responde `ok` e serve para o monitor/balanceador.
 
-## Demonstração gratuita (GitHub Pages)
-A pasta `docs/` continua publicável no GitHub Pages como **demonstração**: sem login, sem IA e sem banco, com conteúdo de exemplo.
-Para o sistema completo use uma das opções acima.
+## Apresentar sem hospedagem
+Para uma apresentação, o mais simples é rodar no seu computador com o `INICIAR.bat` (http://localhost:8000). Se alguém de fora
+precisar acessar durante a apresentação, dá para abrir um endereço público temporário (HTTPS) com um túnel, por exemplo o
+`cloudflared` ("cloudflared tunnel --url http://localhost:8000"), enquanto o seu computador estiver ligado. Nesse caso defina antes
+`OUTGPT_COOKIE_SECURE=1` e `OUTGPT_CONFIAR_PROXY=1`, use senhas fortes e encerre o túnel ao terminar. Esta opção não foi testada aqui.
+
+> Se você tinha ativado o GitHub Pages para este repositório, pode desativar em *Settings > Pages* (Source: None): sem o servidor,
+> o site publicado só mostra a tela "Servidor não encontrado".

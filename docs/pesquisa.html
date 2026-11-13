@@ -35,7 +35,7 @@
     .btn.sec{background:var(--card);color:var(--text);border:1px solid var(--line);padding:10px 16px}
     .btn:disabled{opacity:.6}
     .msg{margin:14px 0;padding:12px 14px;border-radius:12px;font-weight:600}
-    .msg.ok{background:rgba(16,185,129,.15);color:var(--ok)} .msg.bad{background:rgba(239,68,68,.13);color:var(--bad)} .msg.demo{background:rgba(245,158,11,.14);color:var(--warn);font-weight:500;font-size:.9rem}
+    .msg.ok{background:rgba(16,185,129,.15);color:var(--ok)} .msg.bad{background:rgba(239,68,68,.13);color:var(--bad)}
     .small{font-size:.8rem;color:var(--muted)}
     .bar{display:grid;grid-template-columns:minmax(120px,40%) 1fr 32px;gap:10px;align-items:center;margin:8px 0;font-size:.88rem}
     .track{height:10px;background:var(--soft);border-radius:99px;overflow:hidden} .track i{display:block;height:100%;background:linear-gradient(90deg,#6366f1,#22d3ee)}
@@ -98,68 +98,16 @@
   </section>
 </div>
 
-<script src="dados.js"></script>
 <script>
-// Página autônoma: com o servidor Python usa o SQLite; sem ele (GitHub Pages / arquivo local) roda em modo
-// demonstração e guarda as respostas só neste navegador.
+// Página autônoma: conversa com o servidor do OutGPT (as respostas vão para o banco de dados).
 const $ = s => document.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const DEMO_KEY = "outgpt_respostas_demo";
-let demo = null, PERGUNTAS = [];
-
-async function modoDemo() {
-  if (demo === null) {
-    try { demo = location.protocol === "file:" || !(await fetch("/api/perguntas")).ok; } catch { demo = true; }
-  }
-  return demo;
-}
-const locais = () => { try { return JSON.parse(localStorage.getItem(DEMO_KEY)) || []; } catch { return []; } };
-
-function demoResultados() {
-  const D = window.DADOS_PESQUISA, todos = [...D.participantes, ...locais()], por_tipo = {};
-  todos.forEach(p => por_tipo[p.tipo_organizacao] = (por_tipo[p.tipo_organizacao] || 0) + 1);
-  const perguntas = D.perguntas.map(p => {
-    const vals = todos.map(t => t.respostas[p.id]).filter(v => v !== undefined && v !== null && v !== "");
-    const it = { ordem: p.ordem, texto: p.texto, tipo: p.tipo };
-    if (p.tipo === "escala") {
-      const dist = {1:0,2:0,3:0,4:0,5:0}; vals.forEach(v => dist[v]++);
-      Object.assign(it, { n: vals.length, distribuicao: dist, media: vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length * 100) / 100 : null });
-    } else if (p.tipo === "aberta") it.textos = vals.slice().reverse();
-    else { const ids = vals.flat(); it.opcoes = p.opcoes.map(o => ({ texto: o.texto, n: ids.filter(i => i === o.id).length })); }
-    return it;
-  });
-  return { total: todos.length, por_tipo, perguntas };
-}
-
-function demoCsv() {
-  const D = window.DADOS_PESQUISA, q = s => `"${String(s).replace(/"/g, '""')}"`, linhas = ["participante,tipo_organizacao,pergunta,resposta"];
-  [...D.participantes, ...locais()].forEach((t, i) => D.perguntas.forEach(p => {
-    const v = t.respostas[p.id]; if (v === undefined || v === null || v === "") return;
-    const txt = p.tipo === "escala" || p.tipo === "aberta" ? v : [].concat(v).map(id => p.opcoes.find(o => o.id === id)?.texto).join("; ");
-    linhas.push([i + 1, q(t.tipo_organizacao), p.ordem, q(/^[=+\-@]/.test(String(txt)) ? "'" + txt : txt)].join(","));
-  }));
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob(["﻿" + linhas.join("\n")], { type: "text/csv;charset=utf-8" }));
-  a.download = "respostas_outgpt_demo.csv"; a.click(); URL.revokeObjectURL(a.href);
-}
+let PERGUNTAS = [];
 
 async function api(url, opts) {
-  if (await modoDemo()) {
-    const D = window.DADOS_PESQUISA; if (!D) throw new Error("sem dados");
-    if (url === "/api/perguntas") return { ok: true, dados: D.perguntas };
-    if (url === "/api/resultados") return { ok: true, dados: demoResultados() };
-    if (url === "/api/enviar") {
-      const d = JSON.parse(opts.body), e = d.especialista || {};
-      if (!e.nome?.trim() || !e.cargo?.trim() || !e.organizacao?.trim() || !e.tipo_organizacao) return { ok: false, dados: { mensagem: "Preencha nome, cargo, organização e tipo de organização." } };
-      if (!e.consentimento) return { ok: false, dados: { mensagem: "É necessário concordar com o uso dos dados." } };
-      const l = locais(); l.push({ tipo_organizacao: e.tipo_organizacao, respostas: d.respostas });   // sem dados pessoais
-      try { localStorage.setItem(DEMO_KEY, JSON.stringify(l)); } catch { return { ok: false, dados: { mensagem: "Não foi possível salvar neste navegador." } }; }
-      return { ok: true, dados: { mensagem: "Resposta registrada (modo demonstração, salva apenas neste navegador)." } };
-    }
-    throw new Error("rota");
-  }
   const r = await fetch(url, opts);
-  return { ok: r.ok, status: r.status, dados: await r.json() };
+  let dados = null; try { dados = await r.json(); } catch { /* sem corpo */ }
+  return { ok: r.ok, status: r.status, dados };
 }
 
 function desenhar(p) {
@@ -172,10 +120,11 @@ function desenhar(p) {
 
 async function iniciar() {
   try {
-    const r = await api("/api/perguntas"); PERGUNTAS = r.dados;
+    const r = await api("/api/perguntas");
+    if (!r.ok) throw new Error("falha");
+    PERGUNTAS = r.dados;
     $("#perguntas").innerHTML = PERGUNTAS.map(desenhar).join("");
-    if (await modoDemo()) $("#aviso").innerHTML = `<div class="msg demo">🧪 Modo demonstração: as respostas enviadas aqui ficam salvas apenas neste navegador. Com o servidor do projeto ativo, elas vão para o banco de dados.</div>`;
-  } catch { $("#perguntas").innerHTML = `<div class="msg bad">Não foi possível carregar a pesquisa. Inicie o servidor (python server.py) ou use a versão publicada.</div>`; }
+  } catch { $("#perguntas").innerHTML = `<div class="msg bad">Não foi possível carregar a pesquisa: o servidor do OutGPT não está respondendo.</div>`; }
 }
 
 function coletar() {
@@ -212,7 +161,7 @@ const barra = (rot, n, max) => `<div class="bar"><span>${esc(rot)}</span><div cl
 async function carregarResultados() {
   $("#out").innerHTML = ""; $("#resumo").textContent = "Carregando...";
   let r;
-  try { r = await api("/api/resultados"); } catch { $("#resumo").textContent = ""; $("#out").innerHTML = `<div class="msg bad">Não foi possível carregar os resultados.</div>`; return; }
+  try { r = await api("/api/resultados"); if (!r.ok && r.status !== 401 && r.status !== 403) throw new Error("falha"); } catch { $("#resumo").textContent = ""; $("#out").innerHTML = `<div class="msg bad">Não foi possível carregar os resultados.</div>`; return; }
   if (r.status === 401 || r.status === 403) {
     $("#resumo").textContent = "";
     $("#out").innerHTML = `<div class="card"><h2>Resultados restritos</h2><p class="small">Os resultados completos (e a exportação CSV, que contém dados pessoais) ficam disponíveis apenas ao administrador master. Entre no OutGPT com a conta master e volte a esta página.</p><a class="btn" href="./">Ir para o login</a></div>`;
@@ -236,7 +185,6 @@ function aba(qual) {
 }
 $("#t-resp").onclick = () => aba("resp");
 $("#t-res").onclick = () => aba("res");
-$("#csv").onclick = async e => { if (await modoDemo()) { e.preventDefault(); demoCsv(); } };
 iniciar();
 </script>
 </body>

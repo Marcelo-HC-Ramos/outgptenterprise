@@ -5,6 +5,17 @@ Projeto de Processamento de Linguagem Natural - Fatec Cotia, Ciência de Dados.
 
 **Equipe:** Marcelo Henrique do Carmo Ramos, Victor Henrique Duarte Cardoso
 
+## Como usar (Windows) — dois cliques
+1. Dê dois cliques em **`INICIAR.bat`** (na pasta do projeto).
+2. Na primeira vez, a janela preta faz poucas perguntas: seu **login** (e-mail e senha), a **chave da IA** (pode pular e colar depois no site) e o nome da sua **empresa** (já carrega os 100 procedimentos do dataset do projeto).
+3. O navegador abre em **http://localhost:8000**. Entre com o login que você criou. Pronto.
+
+Nas próximas vezes o `INICIAR.bat` não pergunta mais nada: só liga o sistema e abre o navegador. Para encerrar, feche a janela "OutGPT - servidor".
+Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` instala as bibliotecas sozinho na primeira vez (a primeira indexação baixa o modelo de busca, ~250 MB).
+
+**Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
+Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
+
 ## O que a plataforma faz
 - Cada **empresa** cadastra seus conteúdos (procedimentos, manuais, FAQs; digitados, em CSV ou enviados como TXT/MD/PDF/DOCX) e seus usuários.
 - **Cursos:** cada categoria de conteúdo vira um curso automático (lições, perguntas de verificação e progresso por usuário); o admin também monta **cursos personalizados** escolhendo e ordenando lições, e pode gerar as perguntas de verificação com a IA. Ao concluir um curso, o usuário emite um **certificado** imprimível, com código verificável em `/verificar.html`.
@@ -21,35 +32,29 @@ Projeto de Processamento de Linguagem Natural - Fatec Cotia, Ciência de Dados.
 | `funcionario` / `colaborador_interno` | Faz os cursos, usa o assistente e lê a biblioteca da empresa |
 | `colaborador_externo` | Usa o assistente e os cursos, mas só enxerga conteúdos marcados como "Todos" |
 
-## Instalar e rodar (Windows/PowerShell)
-```
-cd backend
-pip install -r requirements.txt
-python init_db.py                  # cria ou atualiza o banco
-python criar_master.py             # cria o SEU login de dono (a senha é digitada no terminal)
-python server.py                   # http://localhost:8000
-```
-Depois, no site: entre com o login master e abra **Administração > Inteligência artificial** para colar a chave da API
-(ou rode `python configurar_llm.py`). A chave é testada, guardada só em `backend/.env` e nunca mais aparece na tela.
-Sem a chave tudo funciona, mas o assistente devolve o trecho encontrado em vez de uma resposta escrita pela IA.
-
-Para começar a usar: **Empresas** (criar) > **Biblioteca** (importar o CSV `backend/data/sops_corporativos.csv`, enviar arquivos ou cadastrar conteúdos) > **Usuários** (criar o admin, funcionários e colaboradores).
-No primeiro uso, o índice de busca é criado sozinho (na primeira vez baixa o modelo de embeddings, ~220 MB).
-
-## Publicar na internet
-Veja **[DEPLOY.md](DEPLOY.md)**: Dockerfile, `render.yaml` e `fly.toml` prontos, tela de "Primeiro acesso" por token, HTTPS, backup (`python backup.py`) e cuidados de privacidade. O modo servidor foi testado localmente; o build Docker e a publicação em si ainda precisam ser executados na hospedagem escolhida.
+Depois de entrar como master: **Usuários** (criar o admin, funcionários e colaboradores) e **Biblioteca** (importar CSV, enviar arquivos ou cadastrar conteúdos).
 
 ## Pesquisa com especialistas
-Arquivo separado e autônomo: `docs/pesquisa.html` (`http://localhost:8000/pesquisa.html`), com as abas **Responder** (pública) e **Resultados** (somente master, com exportação CSV).
+Arquivo separado e autônomo: `docs/pesquisa.html` (`http://localhost:8000/pesquisa.html`), com as abas **Responder** (pública) e **Resultados** (somente master, com exportação CSV). As respostas vão para o banco de dados do servidor.
 
-## Demo online (GitHub Pages)
-Publicando a pasta `docs/` (Settings > Pages > Branch `main`, pasta `/docs`) o site roda em **modo demonstração**: sem login e sem IA
-(o GitHub Pages não executa Python). Os cursos, as perguntas de verificação e a busca usam o conteúdo de exemplo `docs/demo_conteudos.js`.
+## Publicar na internet
+O sistema completo precisa do servidor (banco, logins e IA); por isso o GitHub Pages não serve. Veja **[DEPLOY.md](DEPLOY.md)**: Dockerfile, `render.yaml` e `fly.toml` prontos, tela de "Primeiro acesso" por token, HTTPS, backup (`python backup.py`) e cuidados de privacidade.
+O modo servidor foi testado localmente; o build Docker e a publicação em si ainda precisam ser executados na hospedagem escolhida.
 
 ## Estrutura
 ```
-docs/      Site (HTML/CSS/JS) + pesquisa.html. Publicado no GitHub Pages
-backend/   Servidor Python, banco SQLite, RAG, cursos e integração com a LLM
+INICIAR.bat   Liga tudo com dois cliques (Windows)
+docs/         Site (HTML/CSS/JS), servido pelo próprio servidor Python
+backend/      Servidor Python, banco SQLite, RAG, cursos e integração com a LLM
+```
+
+## Instalação manual (sem o INICIAR.bat)
+```
+cd backend
+pip install -r requirements.txt
+python init_db.py
+python preparar.py        # configuração guiada (login, IA, empresa)
+python server.py          # http://localhost:8000
 ```
 
 ## Banco de dados (SQLite, `backend/outgpt.db`)
@@ -64,16 +69,16 @@ OUTGPT_MODELO=claude-opus-5-5     # padrão; para gastar menos: claude-haiku-5-5
 OUTGPT_ESFORCO=low                # low | medium | high
 ```
 
-## Comandos úteis
+## Comandos úteis (pasta `backend`)
 ```
 python rag.py importar "Nome da Empresa" data/sops_corporativos.csv internos   # importa CSV pela linha de comando
 python rag.py reindexar                                                         # refaz o índice de busca
-python export_static.py                                                         # atualiza os dados do site publicado
+python configurar_llm.py                                                        # liga a IA pelo terminal
 python backup.py                                                                # cópia de segurança do banco (backend/backups)
 ```
 
 ## Desenvolvimento
-`seed_faker.py` gera respostas de TESTE da pesquisa para desenvolver as telas (`--limpar` remove). Nunca publique esses dados como resultado de pesquisa.
+`seed_faker.py` gera respostas de TESTE da pesquisa para desenvolver as telas (`--limpar` remove). Nunca use esses dados como resultado de pesquisa.
 
 ## Segurança e privacidade
 - Nunca coloque a chave da API no código ou no GitHub: ela fica só em `backend/.env` (ignorado pelo Git).
