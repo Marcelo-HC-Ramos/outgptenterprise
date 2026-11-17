@@ -58,7 +58,6 @@ jobs:
           python-version: "3.11"
       - name: Validar o docker-compose.yml
         run: CLOUDFLARE_TUNNEL_TOKEN=teste docker compose config -q
-        run: CLOUDFLARE_TUNNEL_TOKEN=teste docker compose config -q
       - name: Instalador do servidor (gera os arquivos) e validar o docker-compose.servidor.yml
         run: |
           command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
