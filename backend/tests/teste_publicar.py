@@ -38,6 +38,16 @@ lista = json.dumps([{"id": "aaaaaaaa-1111-2222-3333-444444444444", "name": "outr
 chk("lista de túneis: acha o túnel ativo pelo nome (deleted_at zerado = ativo)", publicar.id_do_tunel(lista, "outgpt") == "bbbbbbbb-1111-2222-3333-444444444444")
 chk("lista de túneis: ignora túneis apagados e outros nomes", publicar.id_do_tunel(lista, "inexistente") is None and publicar.id_do_tunel(json.dumps([{"id": "y", "name": "outgpt", "deleted_at": None}]), "outgpt") == "y" and publicar.id_do_tunel(json.dumps([{"id": "x", "name": "outgpt", "deleted_at": "2026-01-01"}]), "outgpt") is None)
 chk("lista de túneis: saída inválida ou vazia", publicar.id_do_tunel("erro qualquer", "outgpt") is None and publicar.id_do_tunel("null", "outgpt") is None)
+aviso = "2026-11-17T19:08:15Z WRN Your version 2026.11.0 is outdated. We recommend upgrading it to 2026.11.1\n"
+chk("lista de túneis: aviso de versão misturado à saída não impede a leitura", publicar.id_do_tunel(aviso + lista + "\n" + aviso, "outgpt") == "bbbbbbbb-1111-2222-3333-444444444444")
+chk("lista de túneis: colchetes soltos num aviso são ignorados", publicar.id_do_tunel("WRN [1] aviso\n" + lista, "outgpt") == "bbbbbbbb-1111-2222-3333-444444444444")
+import tempfile, pathlib
+with tempfile.TemporaryDirectory() as _d:
+    chk("credenciais: sem arquivo, sem túnel", publicar.id_pelas_credenciais(_d) is None)
+    (pathlib.Path(_d) / "cert.pem").write_text("x"); (pathlib.Path(_d) / "4a110a74-9040-45e7-90c8-b6c8de879b5f.json").write_text("{}")
+    chk("credenciais: um único <id>.json é o túnel (cert.pem é ignorado)", publicar.id_pelas_credenciais(_d) == "4a110a74-9040-45e7-90c8-b6c8de879b5f")
+    (pathlib.Path(_d) / "5a110a74-9040-45e7-90c8-b6c8de879b5f.json").write_text("{}")
+    chk("credenciais: dois arquivos = ambíguo, não adivinha", publicar.id_pelas_credenciais(_d) is None)
 saida_create = "Tunnel credentials written to C:\\Users\\X\\.cloudflared\\0a1b2c3d-1111-2222-3333-444455556666.json. cloudflared chose this file...\nCreated tunnel outgpt with id 0a1b2c3d-1111-2222-3333-444455556666"
 import re
 chk("saída do 'tunnel create': extrai o ID do túnel", re.search(publicar.UUID, saida_create).group(0) == "0a1b2c3d-1111-2222-3333-444455556666")

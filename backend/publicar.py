@@ -94,22 +94,39 @@ def pasta_cf():
     return Path(os.environ.get("USERPROFILE") or Path.home()) / ".cloudflared"
 
 
-def rodar(exe, *args):
+def rodar(exe, *args, so_stdout=False):
+    """Roda o cloudflared. Devolve (código, texto); o texto junta stdout e stderr, exceto com so_stdout (para ler JSON:
+    avisos como 'versão desatualizada' saem no stderr e não podem se misturar)."""
     r = subprocess.run([exe, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
-    return r.returncode, (r.stdout or "") + (r.stderr or "")
+    return r.returncode, ((r.stdout or "") if so_stdout else (r.stdout or "") + (r.stderr or ""))
+
+
+def _lista_json(saida):
+    """Primeira lista JSON dentro do texto (ignora linhas de aviso antes ou depois dela)."""
+    dec = json.JSONDecoder()
+    for m in re.finditer(r"\[", saida or ""):
+        try:
+            dados = dec.raw_decode(saida[m.start():])[0]
+        except ValueError:
+            continue
+        if isinstance(dados, list) and all(isinstance(x, dict) for x in dados):
+            return dados
+    return None
 
 
 def id_do_tunel(saida_json, nome):
     """ID do túnel com esse nome na saída JSON de 'cloudflared tunnel list' (ou None)."""
-    try:
-        dados = json.loads(saida_json)
-    except ValueError:
-        return None
-    for t in dados or []:
+    for t in _lista_json(saida_json) or []:
         apagado = (t.get("deleted_at") or "")
         if t.get("name") == nome and (not apagado or apagado.startswith("0001-")):     # túneis ativos vêm com a data "zero" do Go (0001-01-01)
             return t.get("id")
     return None
+
+
+def id_pelas_credenciais(pasta):
+    """Plano B: se existe um único arquivo <id-do-túnel>.json na pasta do cloudflared, esse é o túnel deste computador."""
+    ids = [p.stem for p in Path(pasta).glob("*.json") if re.fullmatch(UUID, p.stem)]
+    return ids[0] if len(ids) == 1 else None
 
 
 def config_yaml(tunel_id, credenciais, dominio, porta):
@@ -128,15 +145,20 @@ def garantir_login(exe):
 
 
 def garantir_tunel(exe):
-    codigo, saida = rodar(exe, "tunnel", "list", "--output", "json")
+    codigo, saida = rodar(exe, "tunnel", "list", "--output", "json", so_stdout=True)
     tid = id_do_tunel(saida, NOME_TUNEL) if codigo == 0 else None
     if not tid:
         print(f"Criando o túnel '{NOME_TUNEL}'...")
         codigo, saida = rodar(exe, "tunnel", "create", NOME_TUNEL)
         achado = re.search(UUID, saida)
-        if codigo != 0 or not achado:
+        if codigo != 0 and "already exists" in saida.lower():      # o túnel já existe e a lista não o mostrou: usa o das credenciais
+            tid = id_pelas_credenciais(pasta_cf())
+            if tid:
+                print(f"O túnel '{NOME_TUNEL}' já existe; usando o que está neste computador.")
+        elif codigo == 0 and achado:
+            tid = achado.group(0)
+        if not tid:
             raise SystemExit("Não consegui criar o túnel:\n" + saida)
-        tid = achado.group(0)
     cred = pasta_cf() / f"{tid}.json"
     if not cred.exists():
         raise SystemExit(f"O túnel '{NOME_TUNEL}' existe, mas o arquivo de credenciais {cred} não está neste computador.\n"
