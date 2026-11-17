@@ -18,6 +18,7 @@ import io
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
 import db
@@ -35,6 +36,9 @@ LIMITE_TEXTO_ARQUIVO = 400_000
 
 _colecao = None
 _modelo = None
+# O Chroma e o fastembed não aguentam ser iniciados por duas threads ao mesmo tempo (o servidor aquece o índice numa thread
+# enquanto já atende pedidos): sem trava, o primeiro uso pode falhar com "'RustBindingsAPI' object has no attribute 'bindings'".
+_trava = threading.RLock()
 
 
 def _embedder():
@@ -48,7 +52,9 @@ def _embedder():
         def __call__(self, input):
             global _modelo
             if _modelo is None:
-                _modelo = TextEmbedding(MODELO)
+                with _trava:
+                    if _modelo is None:
+                        _modelo = TextEmbedding(MODELO)
             return [list(map(float, v)) for v in _modelo.embed(list(input))]
 
         @staticmethod
@@ -65,12 +71,19 @@ def _embedder():
     return FastEmbedMultilingue()
 
 
+def _cliente():
+    import chromadb
+    with _trava:
+        return chromadb.PersistentClient(path=str(CHROMA_DIR))
+
+
 def colecao():
     global _colecao
     if _colecao is None:
-        import chromadb
-        _colecao = chromadb.PersistentClient(path=str(CHROMA_DIR)).get_or_create_collection(
-            COLECAO, embedding_function=_embedder(), metadata={"hnsw:space": "cosine", "formato": FORMATO_INDICE})
+        with _trava:
+            if _colecao is None:
+                _colecao = _cliente().get_or_create_collection(
+                    COLECAO, embedding_function=_embedder(), metadata={"hnsw:space": "cosine", "formato": FORMATO_INDICE})
     return _colecao
 
 
@@ -208,14 +221,13 @@ def remover_conteudo(conteudo_id, con=None):
 
 def reindexar_tudo():
     global _colecao
-    import chromadb
-    cli = chromadb.PersistentClient(path=str(CHROMA_DIR))
-    try:
-        cli.delete_collection(COLECAO)
-    except Exception:
-        pass
-    _colecao = None
-    col = colecao()
+    with _trava:
+        try:
+            _cliente().delete_collection(COLECAO)
+        except Exception:
+            pass
+        _colecao = None
+        col = colecao()
     ids, docs, metas, n = [], [], [], 0
     with db.conectar() as con:
         con.execute("DELETE FROM trechos_fts")

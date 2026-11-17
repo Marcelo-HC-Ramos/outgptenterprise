@@ -11,6 +11,7 @@ import hmac
 import json
 import os
 import re
+import traceback
 import sqlite3
 import threading
 import time
@@ -248,17 +249,29 @@ def _preparar_chat(c):
     historico = _historico_recebido(c.corpo)
     limpa, pii = rag.anonimizar(pergunta)
     consulta = MARCADORES_PII.sub(" ", limpa).strip() or limpa
-    if historico and len(consulta.split()) < 6:        # pergunta curta de continuação: junta a pergunta anterior na busca
-        consulta = MARCADORES_PII.sub(" ", historico[-1]["pergunta"]).strip() + " " + consulta
-    try:
-        achados = rag.buscar(consulta, eid, auth.visibilidades_do(c.usuario["tipo"]), k=3)
-    except Exception as e:
-        raise Erro(503, f"Base vetorial indisponível ({type(e).__name__}). Rode: python rag.py reindexar")
+    anterior = MARCADORES_PII.sub(" ", historico[-1]["pergunta"]).strip() if historico else ""
     com_llm = llm.disponivel()
-    achados = [a for a in achados if rag.relevante(a, com_llm, PISO_VETOR)]
-    if achados:   # mantém só os trechos próximos do melhor (evita citar fontes pouco relevantes)
-        topo = max(a["similaridade"] for a in achados)
-        achados = [a for a in achados if a["similaridade"] >= topo - 0.15 or a["lexical"]]
+    vis = auth.visibilidades_do(c.usuario["tipo"])
+
+    def achar(q):
+        try:
+            itens = rag.buscar(q, eid, vis, k=3)
+        except Exception as e:
+            raise Erro(503, f"Base vetorial indisponível ({type(e).__name__}). Rode: python rag.py reindexar")
+        itens = [a for a in itens if rag.relevante(a, com_llm, PISO_VETOR)]
+        if itens:   # mantém só os trechos próximos do melhor (evita citar fontes pouco relevantes)
+            topo = max(a["similaridade"] for a in itens)
+            itens = [a for a in itens if a["similaridade"] >= topo - 0.15 or a["lexical"]]
+        return itens
+
+    # Pergunta de continuação ("e preciso de 2FA?"): sozinha ela quase não tem assunto e a busca devolve manuais empatados.
+    # Com histórico, busca das duas formas (só a pergunta / pergunta anterior + pergunta) e fica com a junta apenas quando ela
+    # acerta claramente melhor (margem 0,05); assim uma pergunta nova e clara não é puxada para o assunto anterior.
+    achados = achar(consulta)
+    if anterior:
+        junta = achar(anterior + " " + consulta)
+        if junta and max(a["similaridade"] for a in junta) > max((a["similaridade"] for a in achados), default=0) + 0.05:
+            achados = junta
     return {"eid": eid, "historico": historico, "limpa": limpa, "achados": achados,
             "base": {"pii_mascaradas": pii, "pergunta_anonimizada": limpa}}
 
@@ -272,10 +285,22 @@ def _fontes(achados):
              "similaridade": a["similaridade"]} for a in achados]
 
 
+LINHA_FONTE = re.compile(r"\bfontes?\s*:\s*(.+)$", re.I | re.M)
+
+
+def _citadas(texto, achados):
+    """Só as fontes que a resposta cita em 'Fonte: [CÓDIGO]' (as outras foram recuperadas, mas não usadas); sem citação válida, todas."""
+    citados = set()
+    for linha in LINHA_FONTE.findall(texto):
+        citados.update(re.findall(r"[\w.\-]+", linha.upper()))
+    return [a for a in achados if a["codigo"].upper() in citados] or achados
+
+
 def _resposta_da_llm(p, g):
     if g["texto"].strip().upper().startswith("SEM_BASE"):      # a LLM concluiu que os documentos não respondem
         return _sem_base(p)
-    return {**p["base"], "encontrado": True, "gerado_por_ia": True, "resposta": g["texto"], "fontes": _fontes(p["achados"])}
+    return {**p["base"], "encontrado": True, "gerado_por_ia": True, "resposta": g["texto"],
+            "fontes": _fontes(_citadas(g["texto"], p["achados"]))}
 
 
 def _resposta_sem_llm(p, motivo):
@@ -1008,7 +1033,7 @@ class Handler(BaseHTTPRequestHandler):
         except Erro as e:
             self._json(e.codigo, {"ok": False, "mensagem": e.mensagem})
         except Exception as e:                            # não vaza detalhes internos ao cliente
-            print(f"[erro] {metodo} {caminho}: {type(e).__name__}: {e}")
+            print(f"[erro] {metodo} {caminho}: {type(e).__name__}: {e}\n{traceback.format_exc()}", flush=True)
             self._json(500, {"ok": False, "mensagem": "Erro interno do servidor."})
         finally:
             con.close()

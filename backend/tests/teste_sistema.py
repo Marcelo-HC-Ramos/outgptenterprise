@@ -4,7 +4,7 @@ A API da Anthropic é simulada por um servidor local: nenhuma chave real é usad
 Uso (na pasta backend):  python -m pip install -r requirements.txt fpdf2   e depois   python tests/teste_sistema.py
 Sai com código 1 se alguma verificação falhar (usado pelo GitHub Actions).
 """
-import atexit, base64, http.server, io, json, os, shutil, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
+import atexit, base64, http.server, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time, urllib.request, urllib.error
 from pathlib import Path
 
 BACK = str(Path(__file__).resolve().parent.parent)
@@ -43,10 +43,12 @@ class Falso(http.server.BaseHTTPRequestHandler):
             b = json.dumps({"id": "msg_q", "type": "message", "role": "assistant", "model": corpo["model"], "stop_reason": "end_turn", "stop_sequence": None, "content": [{"type": "text", "text": txt}], "usage": {"input_tokens": 300, "output_tokens": 60}}).encode()
             self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b); return
         sem_base = "tempo amanha" in bruto
+        achou = re.search(r'<documento codigo="([^"]+)"', str((corpo.get("messages") or [{}])[-1].get("content", "")))
+        cita = achou.group(1) if ("CITAR_FONTE" in bruto and not sem_base and achou) else None     # cita só o 1º documento recebido
         if corpo.get("stream"):
-            return self._sse(corpo, ["SEM_", "BASE"] if sem_base else ["Resposta ", "simulada ", "em partes. ", "Fonte: [X]"])
+            return self._sse(corpo, ["SEM_", "BASE"] if sem_base else ["Resposta ", "simulada ", "em partes. ", f"Fonte: [{cita}]" if cita else "Fonte: [X]"])
         r = {"id": "msg_1", "type": "message", "role": "assistant", "model": corpo["model"], "stop_reason": "end_turn", "stop_sequence": None,
-             "content": [{"type": "text", "text": "SEM_BASE" if sem_base else "Resposta simulada. Fonte: [X]"}], "usage": {"input_tokens": 120, "output_tokens": 15}}
+             "content": [{"type": "text", "text": "SEM_BASE" if sem_base else (f"Resposta simulada. Fonte: [{cita}]" if cita else "Resposta simulada. Fonte: [X]")}], "usage": {"input_tokens": 120, "output_tokens": 15}}
         b = json.dumps(r).encode()
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
 
@@ -212,6 +214,11 @@ msgs = capturado[-1]["messages"]
 chk("conversa anterior enviada à LLM (user/assistant/user)", [m_["role"] for m_ in msgs] == ["user", "assistant", "user"], [m_["role"] for m_ in msgs])
 chk("e-mail do histórico mascarado", "ze@x.com" not in json.dumps(capturado[-1]) and "[EMAIL]" in msgs[0]["content"])
 chk("pergunta curta de continuação usa o contexto anterior na busca", "SOP_TI_01" in json.dumps(capturado[-1]))
+func.req("POST", "/api/chat", {"pergunta": "E preciso de segundo fator de autenticação?", "historico": hist})
+chk("continuação longa (6+ palavras, sem assunto próprio) também recupera a fonte anterior", "SOP_TI_01" in json.dumps(capturado[-1]), capturado[-1]["messages"][-1])
+s, d = func.req("POST", "/api/chat", {"pergunta": "Quanto tempo de antecedencia preciso para pedir ferias? CITAR_FONTE"})
+n_docs = capturado[-1]["messages"][-1]["content"].count("<documento ")
+chk("só aparecem as fontes que a resposta cita (recuperou vários, citou um)", n_docs > 1 and len(d["fontes"]) == 1, (n_docs, [f["codigo"] for f in d["fontes"]], d.get("resposta"), d.get("gerado_por_ia"), d.get("aviso")))
 chk("histórico malformado é ignorado", func.req("POST", "/api/chat", {"pergunta": "oi tudo bem?", "historico": [{"x": 1}, "texto", None]})[0] == 200)
 # externos
 s, d = ext.req("POST", "/api/chat", {"pergunta": "qual o código do cofre da sala azul?"})
