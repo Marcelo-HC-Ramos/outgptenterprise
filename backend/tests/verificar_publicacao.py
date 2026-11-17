@@ -19,7 +19,7 @@ ok = fail = 0
 
 
 def req(metodo, caminho, dados=None, cookie=None):
-    h = {"Content-Type": "application/json"}
+    h = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0 (compatible; OutGPT-verificacao/1.0)"}   # o Cloudflare barra o User-Agent padrão do Python (erro 1010)
     if cookie:
         h["Cookie"] = cookie
     rq = urllib.request.Request(base + caminho, data=None if dados is None else json.dumps(dados).encode(), method=metodo, headers=h)

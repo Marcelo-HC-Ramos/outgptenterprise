@@ -13,25 +13,24 @@ visitante --HTTPS--> Cloudflare (ramosys.com.br) --túnel--> cloudflared --> ser
 - Enquanto o computador estiver ligado e o `PUBLICAR.bat` aberto, o site está no ar. Para ficar **24 horas**, use um servidor
   (veja "Servidor sempre ligado", abaixo).
 
-## Passo a passo (uns 10 minutos)
-**A. No painel do Cloudflare (você faz uma vez)**
-1. Entre em **one.dash.cloudflare.com** (Zero Trust). Se for o primeiro acesso, escolha um nome para a equipe e o plano **Free**
-   (o Cloudflare pode pedir um cartão para ativar, sem cobrança no plano gratuito).
-2. Vá em **Networks > Tunnels > Create a tunnel** > tipo **Cloudflared** > nome `outgpt` > *Save tunnel*.
-3. Na tela seguinte, **copie o comando de instalação inteiro** (ele contém o token). Você vai colar no passo B.
-4. Em **Public Hostname** (ou "Published application routes") adicione: *Subdomain* `outgpt`, *Domain* `ramosys.com.br`,
-   *Service* tipo **HTTP**, URL `localhost:8000` > Save. O Cloudflare cria o registro DNS sozinho.
-   (Quer usar o endereço raiz `ramosys.com.br`? Deixe o *Subdomain* vazio e, no `PUBLICAR.bat`, informe `ramosys.com.br`.)
-
-**B. No seu computador**
+## Passo a passo (sem cartão)
+Este é o caminho testado: **não ativa o Zero Trust e não pede cartão ou PayPal**. O programa `cloudflared` cria o túnel e o registro DNS
+depois que você autoriza o domínio no navegador.
 1. Dê dois cliques em **`PUBLICAR.bat`** (na pasta do projeto).
-2. Na primeira vez ele faz as perguntas de sempre (seu login, chave da IA, empresa) e depois pede o **token do túnel**:
-   cole o comando que você copiou (ele extrai o token). O token fica só em `backend/.env`.
-3. Se o `cloudflared` não estiver instalado, ele oferece instalar pelo `winget` (pacote oficial do Cloudflare); responda `S`.
-4. Aguarde a mensagem **">>> NO AR: https://outgpt.ramosys.com.br"** e abra o endereço. Entre com o login que você criou.
+2. Na **primeira vez** ele faz, em ordem:
+   - as perguntas de sempre (seu login de dono, chave da IA opcional, empresa);
+   - instala o `cloudflared` pelo `winget` (pacote oficial `Cloudflare.cloudflared`; responda `S`; não precisa de administrador);
+   - abre o login do Cloudflare no navegador: entre na sua conta, escolha **ramosys.com.br** e clique em **Autorizar**;
+   - cria o túnel `outgpt` e o registro DNS `outgpt.ramosys.com.br` sozinho, liga o servidor e o túnel.
+3. Aguarde **">>> NO AR: https://outgpt.ramosys.com.br"** e abra o endereço. Entre com o login que você criou.
 
-Nas próximas vezes, `PUBLICAR.bat` não pergunta nada: liga o servidor e o túnel. Para encerrar, feche as duas janelas.
+Nas próximas vezes `PUBLICAR.bat` não pergunta nada: liga o servidor e o túnel. Para encerrar, feche as duas janelas.
+Quer outro endereço (por exemplo o raiz `ramosys.com.br`)? Informe-o quando o `PUBLICAR.bat` perguntar, na primeira vez.
 
+### Alternativa com token (painel Zero Trust)
+Também funciona, mas o Cloudflare **exige cartão ou PayPal** para ativar o Zero Trust, mesmo no plano gratuito (US$ 0). No painel:
+*Zero Trust > Networks > Tunnels > Create a tunnel* (Cloudflared), copie o comando de instalação, adicione o *Public Hostname*
+(`outgpt` + `ramosys.com.br` > HTTP `localhost:8000`) e cole o comando quando o `PUBLICAR.bat` pedir o token.
 ## Recomendações de segurança no Cloudflare (painel do domínio)
 - **SSL/TLS > Edge Certificates:** ative *Always Use HTTPS*.
 - **Security > Bots:** ligue *Bot Fight Mode*. **Security > WAF > Rate limiting rules:** regra para `outgpt.ramosys.com.br/api/login`
@@ -64,6 +63,9 @@ Num servidor com Docker (VPS ou um computador dedicado), use o `docker-compose.y
 | Token recusado no `PUBLICAR.bat` | Copie de novo o comando inteiro do passo A.3 (o token é longo e começa com `eyJ`). |
 
 ## O que foi testado
-O servidor atrás de proxy/Cloudflare (IP real, domínio aceito, cookies seguros), a leitura do token e o `docker-compose.yml` têm testes
-automáticos, e o GitHub Actions executa um teste ponta a ponta por um túnel temporário do Cloudflare (sem conta). O passo a passo no
-painel do **seu** Cloudflare e o `winget` dependem da sua conta e do seu computador e não puderam ser executados por quem escreveu estes arquivos.
+- **No seu computador, em 17/11/2026:** instalação do `cloudflared`, autorização do domínio, criação do túnel `outgpt` e do DNS `outgpt.ramosys.com.br`,
+  segunda execução reaproveitando tudo, e o endereço público respondendo (`/saude`, página inicial, cabeçalhos de segurança, rotas protegidas):
+  7 de 7 verificações em `https://outgpt.ramosys.com.br`.
+- **No GitHub Actions, a cada envio:** o servidor atrás de proxy/Cloudflare (IP real, domínio aceito, cookies seguros), a leitura do túnel e o
+  `docker-compose.yml`, mais um teste ponta a ponta por um túnel temporário.
+- **Ainda não testado:** o login pelo endereço público (depende de você criar o seu login de dono no `PUBLICAR.bat`) e o `docker-compose` em um servidor real.

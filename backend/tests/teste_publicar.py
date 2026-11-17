@@ -31,5 +31,18 @@ publicar.gravar_env("OUTGPT_DOMINIO", "novo.exemplo.com.br")
 conteudo = open(os.environ["OUTGPT_ENV_ARQ"], encoding="utf-8").read().splitlines()
 chk("gravar_env atualiza sem duplicar chaves", conteudo.count("OUTGPT_DOMINIO=novo.exemplo.com.br") == 1 and sum(l.startswith("OUTGPT_DOMINIO=") for l in conteudo) == 1 and f"CLOUDFLARE_TUNNEL_TOKEN={token}" in conteudo)
 chk("o token gravado é lido de volta", publicar.extrair_token(os.environ["CLOUDFLARE_TUNNEL_TOKEN"]) == token)
+# ----- modo sem cartão (túnel criado pelo cloudflared) -----
+lista = json.dumps([{"id": "aaaaaaaa-1111-2222-3333-444444444444", "name": "outro", "deleted_at": "0001-01-01T00:00:00Z"},
+                    {"id": "bbbbbbbb-1111-2222-3333-444444444444", "name": "outgpt", "deleted_at": "0001-01-01T00:00:00Z"},   # formato real: túnel ativo
+                    {"id": "cccccccc-1111-2222-3333-444444444444", "name": "outgpt", "deleted_at": "2026-01-01T00:00:00Z"}])
+chk("lista de túneis: acha o túnel ativo pelo nome (deleted_at zerado = ativo)", publicar.id_do_tunel(lista, "outgpt") == "bbbbbbbb-1111-2222-3333-444444444444")
+chk("lista de túneis: ignora túneis apagados e outros nomes", publicar.id_do_tunel(lista, "inexistente") is None and publicar.id_do_tunel(json.dumps([{"id": "y", "name": "outgpt", "deleted_at": None}]), "outgpt") == "y" and publicar.id_do_tunel(json.dumps([{"id": "x", "name": "outgpt", "deleted_at": "2026-01-01"}]), "outgpt") is None)
+chk("lista de túneis: saída inválida ou vazia", publicar.id_do_tunel("erro qualquer", "outgpt") is None and publicar.id_do_tunel("null", "outgpt") is None)
+saida_create = "Tunnel credentials written to C:\\Users\\X\\.cloudflared\\0a1b2c3d-1111-2222-3333-444455556666.json. cloudflared chose this file...\nCreated tunnel outgpt with id 0a1b2c3d-1111-2222-3333-444455556666"
+import re
+chk("saída do 'tunnel create': extrai o ID do túnel", re.search(publicar.UUID, saida_create).group(0) == "0a1b2c3d-1111-2222-3333-444455556666")
+cfg = publicar.config_yaml("0a1b2c3d-1111-2222-3333-444455556666", r"C:\Users\X\.cloudflared\0a1b2c3d-1111-2222-3333-444455556666.json", "outgpt.exemplo.com.br", 8000)
+chk("config do túnel: hostname, serviço local e 404 padrão", "tunnel: 0a1b2c3d-1111-2222-3333-444455556666" in cfg and "hostname: outgpt.exemplo.com.br" in cfg and "service: http://localhost:8000" in cfg and cfg.rstrip().endswith("service: http_status:404"))
+chk("config do túnel: caminho do Windows entre aspas simples", "credentials-file: 'C:\\Users\\X\\.cloudflared\\" in cfg)
 print(f"\n{ok} ok, {fail} falhas")
 sys.exit(1 if fail else 0)

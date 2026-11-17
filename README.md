@@ -17,7 +17,7 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
 ## Colocar no seu domínio (Cloudflare)
-Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas). Passo a passo, segurança, limites e a versão para servidor 24h (`docker-compose.yml`) em **[CLOUDFLARE.md](CLOUDFLARE.md)**.
+Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas e sem cartão). Passo a passo, segurança, limites e a versão para servidor 24h (`docker-compose.yml`) em **[CLOUDFLARE.md](CLOUDFLARE.md)**.
 ## Rodar online pelo GitHub (Codespaces)
 [![Abrir no GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Marcelo-HC-Ramos/outgptenterprise?quickstart=1)
 
