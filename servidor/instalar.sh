@@ -16,8 +16,9 @@ DIR="${OUTGPT_DIR:-/opt/outgpt}"
 REPO="${OUTGPT_REPO:-https://github.com/Marcelo-HC-Ramos/outgptenterprise.git}"
 
 export DEBIAN_FRONTEND=noninteractive
-apt-get update -y
-apt-get install -y git curl python3 ca-certificates
+# Servidor recém-criado: o primeiro boot ainda pode estar usando o apt; espera até 5 minutos em vez de falhar.
+apt-get -o DPkg::Lock::Timeout=300 update -y
+apt-get -o DPkg::Lock::Timeout=300 install -y git curl python3 ca-certificates
 
 if [ -d "$DIR/.git" ]; then
   echo "Atualizando o projeto em $DIR ..."

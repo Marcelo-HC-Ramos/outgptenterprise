@@ -42,15 +42,26 @@ jobs:
         run: echo "::error title=Testes falharam::$(grep -E 'FAIL|Traceback|Error|falhas' /tmp/saida.txt | head -n 25 | tr '\n' '|')"
 
   docker:
-    name: Imagem Docker (publicação)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Imagem Docker (${{ matrix.rotulo }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest, rotulo: "x86" }
+          - { runner: ubuntu-24.04-arm, rotulo: "ARM, como no Oracle Cloud gratis" }
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
       - name: Validar o docker-compose.yml
+        run: CLOUDFLARE_TUNNEL_TOKEN=teste docker compose config -q
         run: CLOUDFLARE_TUNNEL_TOKEN=teste docker compose config -q
       - name: Instalador do servidor (gera os arquivos) e validar o docker-compose.servidor.yml
         run: |
+          command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
           shellcheck servidor/instalar.sh
           OUTGPT_INSTALAR_CREDENCIAIS='{"AccountTag":"0123456789abcdef0123456789abcdef","TunnelSecret":"c2VjcmV0bw==","TunnelID":"4a110a74-9040-45e7-90c8-b6c8de879b5f"}' \
             python3 servidor/instalar.py --gerar-apenas --sem-perguntas --sem-exemplos --dominio ci.exemplo.com.br
