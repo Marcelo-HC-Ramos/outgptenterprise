@@ -32,6 +32,10 @@ jobs:
         run: |
           set -o pipefail
           python backend/tests/teste_sistema.py 2>&1 | tee /tmp/saida.txt
+      - name: Testes rápidos de proxy/Cloudflare e da publicação
+        run: |
+          python backend/tests/teste_proxy.py
+          python backend/tests/teste_publicar.py
       - name: Resumo da falha
         if: failure()
         run: echo "::error title=Testes falharam::$(grep -E 'FAIL|Traceback|Error|falhas' /tmp/saida.txt | head -n 25 | tr '\n' '|')"
@@ -42,6 +46,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      - name: Validar o docker-compose.yml
+        run: CLOUDFLARE_TUNNEL_TOKEN=teste docker compose config -q
       - name: Construir a imagem
         run: docker build -t outgpt .
       - name: Subir o contêiner (volume com dono root, como nas hospedagens)
@@ -71,3 +77,45 @@ jobs:
         uses: devcontainers/ci@v0.3
         with:
           runCmd: bash .devcontainer/verificar.sh
+
+  cloudflare:
+    name: Túnel Cloudflare (ponta a ponta, sem conta)
+    runs-on: ubuntu-latest
+    continue-on-error: true      # depende de um serviço externo (túnel temporário trycloudflare.com)
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Instalar bibliotecas
+        run: pip install -r backend/requirements.txt
+      - name: Instalar o cloudflared
+        run: |
+          curl -fsSL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          ./cloudflared --version
+      - name: Abrir um túnel temporário para a porta 8000
+        run: |
+          nohup ./cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8000 > tunel.log 2>&1 &
+          URL=""
+          for i in $(seq 1 60); do URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' tunel.log | head -1); [ -n "$URL" ] && break; sleep 2; done
+          [ -n "$URL" ] || { echo "::error title=Túnel não abriu::$(tail -n 20 tunel.log | tr '\n' '|')"; exit 1; }
+          echo "URL=$URL" >> "$GITHUB_ENV"
+          echo "Endereço do túnel: $URL"
+      - name: Iniciar o servidor com as proteções do modo público
+        run: |
+          cd backend
+          python init_db.py
+          export OUTGPT_SETUP_TOKEN=token-de-ci-123456 OUTGPT_COOKIE_SECURE=1 OUTGPT_CONFIAR_PROXY=1 OUTGPT_DOMINIO="${URL#https://}"
+          nohup python server.py > ../servidor.log 2>&1 &
+          python aguardar.py
+      - name: Esperar o endereço público responder
+        run: |
+          for i in $(seq 1 60); do curl -fs "$URL/saude" >/dev/null 2>&1 && exit 0; sleep 3; done
+          echo "::error title=Endereço público não respondeu::$(tail -n 15 tunel.log | tr '\n' '|')"
+          exit 1
+      - name: Verificar pelo endereço público (HTTPS via Cloudflare)
+        run: OUTGPT_SETUP_TOKEN=token-de-ci-123456 python backend/tests/verificar_publicacao.py "$URL" --criar-master

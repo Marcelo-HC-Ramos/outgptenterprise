@@ -16,7 +16,8 @@ def carregar_env():
         if not linha or linha.startswith("#") or "=" not in linha:
             continue
         k, v = linha.split("=", 1)
-        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        if not os.environ.get(k.strip()):          # variável ausente ou vazia (ex.: definida em branco pelo docker compose)
+            os.environ[k.strip()] = v.strip().strip('"').strip("'")
 
 
 carregar_env()

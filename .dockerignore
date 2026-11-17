@@ -13,3 +13,7 @@ outgpt-pesquisa
 .devcontainer
 .github
 backend/tests
+docker-compose.yml
+docker-compose.exemplo.env
+PUBLICAR.bat
+INICIAR.bat

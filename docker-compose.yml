@@ -1,0 +1,27 @@
+# OutGPT Enterprise + Cloudflare Tunnel em um servidor que fica ligado 24h (VPS ou computador dedicado).
+# Uso:  copie docker-compose.exemplo.env para .env, preencha, e rode:  docker compose up -d --build
+# No painel do Cloudflare, o Public Hostname do túnel deve apontar para:  http://outgpt:8000
+services:
+  outgpt:
+    build: .
+    restart: unless-stopped
+    environment:
+      OUTGPT_SETUP_TOKEN: ${OUTGPT_SETUP_TOKEN:-}
+      OUTGPT_DOMINIO: ${OUTGPT_DOMINIO:-outgpt.ramosys.com.br}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OUTGPT_MODELO: ${OUTGPT_MODELO:-claude-opus-5-5}
+    volumes:
+      - dados:/data
+    # sem "ports": só o túnel conversa com o sistema, nada fica exposto na internet diretamente
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?defina CLOUDFLARE_TUNNEL_TOKEN no arquivo .env}
+    depends_on:
+      - outgpt
+
+volumes:
+  dados:

@@ -16,6 +16,8 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 **Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
+## Colocar no seu domínio (Cloudflare)
+Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas). Passo a passo, segurança, limites e a versão para servidor 24h (`docker-compose.yml`) em **[CLOUDFLARE.md](CLOUDFLARE.md)**.
 ## Rodar online pelo GitHub (Codespaces)
 [![Abrir no GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Marcelo-HC-Ramos/outgptenterprise?quickstart=1)
 
@@ -55,6 +57,7 @@ O modo servidor foi testado localmente; o build Docker e a publicação em si ai
 ## Estrutura
 ```
 INICIAR.bat   Liga tudo com dois cliques (Windows)
+PUBLICAR.bat  Liga tudo e publica no seu domínio pelo Cloudflare Tunnel
 docs/         Site (HTML/CSS/JS), servido pelo próprio servidor Python
 backend/      Servidor Python, banco SQLite, RAG, cursos e integração com a LLM
 ```

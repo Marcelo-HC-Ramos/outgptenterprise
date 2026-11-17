@@ -27,6 +27,9 @@ usem pelo navegador. O GitHub Pages **não serve** para isso: ele só hospeda ar
 | `OUTGPT_COOKIE_SECURE` ✔ | `1`: cookie de sessão só por HTTPS e cabeçalho HSTS. |
 | `OUTGPT_CONFIAR_PROXY` ✔ | `1`: usa o IP real do cliente (`X-Forwarded-For` do proxy) nos limites de tentativas. Só ative atrás de um proxy confiável. |
 
+## Opção Cloudflare Tunnel (seu domínio)
+Veja o **[CLOUDFLARE.md](CLOUDFLARE.md)**: PUBLICAR.bat no seu computador ou docker-compose.yml num servidor 24h, com o domínio na Cloudflare.
+
 ## Opção 0: GitHub Codespaces (a mais simples, sem sair do GitHub)
 Ideal para apresentações e testes; não é hospedagem permanente (o Codespace desliga sozinho quando fica parado e usa a cota mensal da conta).
 O passo a passo está no `README.md` (seção "Rodar online pelo GitHub"). A configuração fica em `.devcontainer/` e o GitHub Actions a testa a cada envio.

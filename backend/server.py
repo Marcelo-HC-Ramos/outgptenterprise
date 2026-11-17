@@ -86,6 +86,10 @@ CONFIAR_PROXY = os.environ.get("OUTGPT_CONFIAR_PROXY") == "1"   # atrás de um p
 
 _PORTA = int(os.environ.get("OUTGPT_PORTA") or os.environ.get("PORT") or 8000)
 ORIGENS_EXTRAS = {h.strip() for h in os.environ.get("OUTGPT_ORIGENS", "").split(",") if h.strip()}   # hosts extras aceitos no cabeçalho Origin
+for _d in os.environ.get("OUTGPT_DOMINIO", "").split(","):       # domínio público do sistema (ex.: outgpt.ramosys.com.br), com ou sem https://
+    _d = _d.strip().replace("https://", "").replace("http://", "").strip("/")
+    if _d:
+        ORIGENS_EXTRAS.add(_d)
 if os.environ.get("CODESPACE_NAME"):          # GitHub Codespaces: o proxy de portas troca o Host, mas o Origin é o endereço público
     ORIGENS_EXTRAS.add(f"{os.environ['CODESPACE_NAME']}-{_PORTA}.{os.environ.get('GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN', 'app.github.dev')}")
 
@@ -926,6 +930,9 @@ class Handler(BaseHTTPRequestHandler):
     def _ip(self):
         """IP do cliente. Atrás de um proxy confiável vale o último valor de X-Forwarded-For (o que o proxy anexou)."""
         if CONFIAR_PROXY:
+            cf = self.headers.get("CF-Connecting-IP", "").strip()          # Cloudflare informa o IP real do visitante
+            if cf:
+                return cf[:64]
             xff = self.headers.get("X-Forwarded-For", "")
             if xff:
                 return xff.split(",")[-1].strip()[:64]
