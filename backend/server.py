@@ -262,6 +262,7 @@ def _preparar_chat(c):
         if itens:   # mantém só os trechos próximos do melhor (evita citar fontes pouco relevantes)
             topo = max(a["similaridade"] for a in itens)
             itens = [a for a in itens if a["similaridade"] >= topo - 0.15 or a["lexical"]]
+            itens.sort(key=lambda a: a["similaridade"], reverse=True)       # a fonte mais parecida primeiro (tela e prompt)
         return itens
 
     # Pergunta de continuação ("e preciso de 2FA?"): sozinha ela quase não tem assunto e a busca devolve manuais empatados.

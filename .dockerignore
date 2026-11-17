@@ -7,6 +7,7 @@ backend/outgpt.db-journal
 backend/.env
 backend/backups
 backend/data/chroma_db
+backend/data/modelo_busca
 outgpt-frontend
 outgpt-pesquisa
 *.md

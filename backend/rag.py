@@ -17,7 +17,9 @@ import csv
 import io
 import os
 import re
+import shutil
 import sys
+import tempfile
 import threading
 from pathlib import Path
 
@@ -34,6 +36,25 @@ TRECHO_ALVO = 600                       # caracteres por trecho
 TRECHO_SOBREPOSICAO = 80
 LIMITE_TEXTO_ARQUIVO = 400_000
 
+
+
+def _fixar_cache_do_modelo():
+    """O fastembed guarda o modelo (~240 MB) na pasta TEMPORÁRIA do sistema, que o Windows pode limpar: sem o modelo e sem internet
+    o assistente não acharia os manuais. Se FASTEMBED_CACHE_PATH não foi definido (o Docker define), usa backend/data/modelo_busca
+    e, na primeira vez, aproveita o cache que já existe na pasta temporária (sem baixar de novo)."""
+    if os.environ.get("FASTEMBED_CACHE_PATH"):
+        return
+    novo = BASE / "data" / "modelo_busca"
+    antigo = Path(tempfile.gettempdir()) / "fastembed_cache"
+    if not novo.exists() and antigo.is_dir():
+        try:
+            shutil.copytree(antigo, novo)
+        except OSError:
+            shutil.rmtree(novo, ignore_errors=True)         # cópia incompleta: o fastembed baixa de novo
+    os.environ["FASTEMBED_CACHE_PATH"] = str(novo)
+
+
+_fixar_cache_do_modelo()
 _colecao = None
 _modelo = None
 # O Chroma e o fastembed não aguentam ser iniciados por duas threads ao mesmo tempo (o servidor aquece o índice numa thread
