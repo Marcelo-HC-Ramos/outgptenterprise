@@ -16,6 +16,8 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 **Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
+**Vai apresentar?** O roteiro de 5 a 8 minutos, com as perguntas que funcionam bem, está em **[DEMO.md](DEMO.md)**.
+
 ## Colocar no seu domínio (Cloudflare)
 Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas e sem cartão). Passo a passo, segurança, limites em **[CLOUDFLARE.md](CLOUDFLARE.md)**. Para ficar no ar **24 horas sem o seu computador**, num VPS com instalador pronto: **[SERVIDOR.md](SERVIDOR.md)**.
 ## Rodar online pelo GitHub (Codespaces)
