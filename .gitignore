@@ -7,3 +7,6 @@ backend/data/chroma_db/
 .venv/
 .vscode/
 backend/backups/
+# segredos do servidor (gerados por servidor/instalar.py): nunca vao para o GitHub
+/.env
+/cloudflared/

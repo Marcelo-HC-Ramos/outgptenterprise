@@ -47,11 +47,16 @@ Também funciona, mas o Cloudflare **exige cartão ou PayPal** para ativar o Zer
 - Faça backups (`python backup.py`) e guarde-os fora do computador.
 
 ## Servidor sempre ligado (24h)
-Num servidor com Docker (VPS ou um computador dedicado), use o `docker-compose.yml`, que sobe o sistema e o `cloudflared` juntos:
+Para o site não depender do seu computador, rode-o em um VPS: o guia **[SERVIDOR.md](SERVIDOR.md)** traz o passo a passo com um instalador
+(`servidor/instalar.sh`) que reaproveita o **mesmo túnel sem cartão** deste guia (você só copia o arquivo de credenciais do túnel) e usa o
+`docker-compose.servidor.yml`.
+
+Se você criou o túnel no painel Zero Trust (com token), use o `docker-compose.yml`:
 1. Copie `docker-compose.exemplo.env` para `.env` e preencha `CLOUDFLARE_TUNNEL_TOKEN` e `OUTGPT_SETUP_TOKEN` (valor longo e aleatório).
 2. No Public Hostname do túnel, aponte o *Service* para **`http://outgpt:8000`** (o nome do contêiner do sistema).
-3. `docker compose up -d --build`. Abra o endereço: na primeira vez aparece **Primeiro acesso**; use o `OUTGPT_SETUP_TOKEN` para criar o master.
+3. `docker compose up -d --build`. Na primeira vez aparece **Primeiro acesso**; use o `OUTGPT_SETUP_TOKEN` para criar o master.
 4. Backup: `docker compose exec outgpt python backup.py /data/backups` e copie a pasta para fora do servidor.
+(O instalador também aceita o token: cole-o quando ele pedir as credenciais do túnel.)
 
 ## Solução de problemas
 | Sintoma | O que fazer |
@@ -68,4 +73,5 @@ Num servidor com Docker (VPS ou um computador dedicado), use o `docker-compose.y
   7 de 7 verificações em `https://outgpt.ramosys.com.br`.
 - **No GitHub Actions, a cada envio:** o servidor atrás de proxy/Cloudflare (IP real, domínio aceito, cookies seguros), a leitura do túnel e o
   `docker-compose.yml`, mais um teste ponta a ponta por um túnel temporário.
-- **Ainda não testado:** o login pelo endereço público (depende de você criar o seu login de dono no `PUBLICAR.bat`) e o `docker-compose` em um servidor real.
+- **No GitHub Actions e aqui:** o instalador do servidor (49 verificações: credenciais, `.env`, configuração do túnel, memória de troca) e a validação do `docker-compose.servidor.yml`.
+- **Ainda não testado:** o login pelo endereço público (depende de você criar o seu login de dono) e o instalador/`docker-compose` em um VPS real.
