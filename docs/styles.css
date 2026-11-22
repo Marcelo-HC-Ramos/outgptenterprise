@@ -284,3 +284,15 @@ ol.lista-sel li>span:first-of-type{flex:1}
   .certificado{position:fixed;inset:0;margin:0;display:flex;flex-direction:column;justify-content:center;background:#fff!important;color:#151a2d!important;border-color:#4f46e5}
   .certificado .muted{color:#555!important}
 }
+
+/* ===== Departamentos (RBAC por função / trilhas) ===== */
+.row3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px} .row3 input,.row3 select{width:100%}
+.trilha-info{margin:-6px 0 16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.deptos{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-top:10px}
+.depto{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}
+.depto small{display:block;margin-top:4px}
+.publico{border:1px solid var(--line);border-radius:12px;padding:6px 14px 10px;margin:10px 0}
+.publico legend{padding:0 6px;font-weight:700;font-size:.88rem}
+.pub-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0 12px;margin:0 0 4px 26px}
+@media (max-width:640px){.row3{grid-template-columns:1fr}.pub-lista{margin-left:0}}
+

@@ -1,4 +1,4 @@
--- OutGPT Enterprise - esquema SQLite (versão 2: multiempresa, com autenticação)
+-- OutGPT Enterprise - esquema SQLite (versão 5: multiempresa, autenticação, cursos e departamentos)
 PRAGMA foreign_keys = ON;
 
 -- ===== Empresas (clientes da plataforma) =====
@@ -7,6 +7,17 @@ CREATE TABLE IF NOT EXISTS empresas (
   nome TEXT NOT NULL UNIQUE,
   ativa INTEGER NOT NULL DEFAULT 1 CHECK (ativa IN (0,1)),
   criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+);
+
+-- ===== Departamentos (grupos de funções dentro de uma empresa: RH, TI, Financeiro...) =====
+-- Ligam pessoas a conteúdos: um conteúdo sem departamentos é de todos; com departamentos, só eles (e os admins) o enxergam.
+CREATE TABLE IF NOT EXISTS departamentos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  empresa_id INTEGER NOT NULL REFERENCES empresas(id) ON DELETE CASCADE,
+  nome TEXT NOT NULL COLLATE NOCASE,
+  descricao TEXT,
+  criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  UNIQUE (empresa_id, nome)
 );
 
 -- ===== Usuários =====
@@ -26,6 +37,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
   tentativas_falhas INTEGER NOT NULL DEFAULT 0,
   bloqueado_ate TEXT,
   ultimo_login TEXT,
+  departamento_id INTEGER REFERENCES departamentos(id) ON DELETE SET NULL,   -- função/área da pessoa (trilha de aprendizado)
   criado_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
   CHECK ((tipo = 'master' AND empresa_id IS NULL) OR (tipo <> 'master' AND empresa_id IS NOT NULL))
 );
@@ -60,6 +72,15 @@ CREATE TABLE IF NOT EXISTS conteudos (
   UNIQUE (empresa_id, codigo)
 );
 CREATE INDEX IF NOT EXISTS idx_conteudos_empresa ON conteudos(empresa_id);
+
+-- Público do conteúdo por departamento. Sem linhas = todos os departamentos. RESTRICT: apagar um departamento em uso é recusado
+-- (senão o conteúdo restrito viraria público sem ninguém perceber).
+CREATE TABLE IF NOT EXISTS conteudo_departamentos (
+  conteudo_id INTEGER NOT NULL REFERENCES conteudos(id) ON DELETE CASCADE,
+  departamento_id INTEGER NOT NULL REFERENCES departamentos(id) ON DELETE RESTRICT,
+  PRIMARY KEY (conteudo_id, departamento_id)
+);
+CREATE INDEX IF NOT EXISTS idx_cd_departamento ON conteudo_departamentos(departamento_id);
 
 -- ===== Índice de palavras-chave (busca híbrida: complementa os vetores do ChromaDB) =====
 CREATE VIRTUAL TABLE IF NOT EXISTS trechos_fts USING fts5(

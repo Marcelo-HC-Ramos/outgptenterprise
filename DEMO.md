@@ -30,8 +30,12 @@ Tudo abaixo foi testado com a IA real (Claude) e os 100 procedimentos de exemplo
 **4. Cursos.** Cada categoria de manuais vira um curso automaticamente. Abra um curso, conclua uma lição, responda a pergunta de verificação
 e emita o **certificado** (código verificável por qualquer pessoa em `/verificar.html`). Em um conteúdo sem pergunta, use **Gerar com IA**.
 
+**4b. Trilhas por departamento (RBAC).** Em **Usuários**, crie os departamentos **RH** e **TI** e coloque uma pessoa em cada um. Na **Biblioteca**, crie um
+conteúdo (ou envie um arquivo) com **"Somente os escolhidos: RH"**. Entre como a pessoa do RH e depois como a da TI: o RH vê o conteúdo, o curso dele e a resposta do
+assistente; a TI não vê nada disso (nem pela busca do assistente). Cada pessoa vê o selo **"Sua trilha"** no Início.
+
 **5. Administração.** **Lacunas e feedback** (perguntas sem resposta e respostas mal avaliadas, para a empresa melhorar os manuais), **Usuários**
-(perfis: admin, funcionário, colaborador interno e externo; o externo **não vê manuais internos**) e **Empresas** (cada empresa isolada).
+(perfis: admin, funcionário, colaborador interno e externo; o externo **não vê manuais internos**; cada pessoa tem um **departamento**) e **Empresas** (cada empresa isolada).
 
 **6. Pesquisa.** Abra `/pesquisa.html` (pública): as 7 perguntas para especialistas. Os resultados só aparecem para o master.
 

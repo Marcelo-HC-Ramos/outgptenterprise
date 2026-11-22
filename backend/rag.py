@@ -295,8 +295,9 @@ def linhas_do_csv(texto):
     return linhas
 
 
-def importar_csv(con, empresa_id, texto, visibilidade="internos", criado_por=None):
-    """Insere/atualiza os conteúdos de uma empresa a partir do CSV, reindexa e sincroniza os cursos. Devolve a quantidade."""
+def importar_csv(con, empresa_id, texto, visibilidade="internos", criado_por=None, departamentos=None):
+    """Insere/atualiza os conteúdos de uma empresa a partir do CSV, reindexa e sincroniza os cursos. Devolve a quantidade.
+    `departamentos` (lista de ids já validados) define quem pode ver os conteúdos importados; None não mexe no público."""
     if visibilidade not in ("todos", "internos"):
         raise ValueError("Visibilidade inválida.")
     linhas = linhas_do_csv(texto)
@@ -311,7 +312,11 @@ def importar_csv(con, empresa_id, texto, visibilidade="internos", criado_por=Non
     con.commit()
     for c in con.execute("SELECT * FROM conteudos WHERE empresa_id=? AND codigo IN (%s)" % ",".join("?" * len(linhas)),
                          [empresa_id] + [l["id"] for l in linhas]).fetchall():
+        if departamentos is not None:
+            import auth
+            auth.definir_publico(con, c["id"], departamentos)
         indexar_conteudo(c, con)
+    con.commit()
     import cursos
     cursos.sincronizar(con, empresa_id)
     return len(linhas)
@@ -365,18 +370,19 @@ def _normalizar(texto):
     return "".join(ch for ch in unicodedata.normalize("NFKD", texto.lower()) if not unicodedata.combining(ch))
 
 
-def _busca_lexical(pergunta, empresa_id, visibilidades, limite=20):
+def _busca_lexical(pergunta, empresa_id, visibilidades, limite=20, vetados=()):
     """Trechos com palavras da pergunta (BM25). Devolve lista de (conteudo_id, ordem, texto, forca) do melhor para o pior."""
     termos = _termos(pergunta)
     if not termos:
         return []
     marcas = ",".join("?" * len(visibilidades))
+    fora = f" AND conteudo_id NOT IN ({','.join('?' * len(vetados))})" if vetados else ""      # conteúdos de outros departamentos
     with db.conectar() as con:
         try:
             linhas = con.execute(
                 f"SELECT conteudo_id, ordem, texto FROM trechos_fts WHERE trechos_fts MATCH ? AND empresa_id = ? "
-                f"AND visibilidade IN ({marcas}) ORDER BY bm25(trechos_fts) LIMIT ?",
-                [_consulta_fts(termos), int(empresa_id), *visibilidades, limite]).fetchall()
+                f"AND visibilidade IN ({marcas}){fora} ORDER BY bm25(trechos_fts) LIMIT ?",
+                [_consulta_fts(termos), int(empresa_id), *visibilidades, *[int(v) for v in vetados], limite]).fetchall()
         except Exception:
             return []
     out = []
@@ -387,14 +393,19 @@ def _busca_lexical(pergunta, empresa_id, visibilidades, limite=20):
     return out
 
 
-def buscar(pergunta, empresa_id, visibilidades, k=3):
+def buscar(pergunta, empresa_id, visibilidades, k=3, vetados=()):
     """Busca híbrida: vetores (significado) + palavras-chave (BM25), combinadas por posição (RRF).
     Cada item traz o conteúdo, a `similaridade` vetorial, `lexical` (casou com palavras da pergunta) e os `trechos`
-    que melhor respondem. Sempre restrita à empresa e às visibilidades permitidas."""
+    que melhor respondem. Sempre restrita à empresa e às visibilidades permitidas; `vetados` são ids de conteúdos que o
+    departamento do usuário não pode ver (nunca aparecem, nem como fonte)."""
     col = colecao()
     if col.count() == 0:
         return []
-    filtro = {"$and": [{"empresa_id": {"$eq": int(empresa_id)}}, {"visibilidade": {"$in": list(visibilidades)}}]}
+    vetados = {int(v) for v in vetados}
+    condicoes = [{"empresa_id": {"$eq": int(empresa_id)}}, {"visibilidade": {"$in": list(visibilidades)}}]
+    if vetados:
+        condicoes.append({"conteudo_id": {"$nin": sorted(vetados)}})
+    filtro = {"$and": condicoes}
     r = col.query(query_texts=[pergunta], n_results=k * 6 + 6, where=filtro)
     vet = {}      # conteudo_id -> {"dist", "trechos": {ordem: texto}}
     for meta, dist, doc in zip(r["metadatas"][0], r["distances"][0], r["documents"][0]):
@@ -403,7 +414,7 @@ def buscar(pergunta, empresa_id, visibilidades, k=3):
         if meta["parte"] == "trecho":
             g["trechos"][meta["ordem"]] = doc
     lex = {}      # conteudo_id -> {"pos", "forca", "casados", "trechos": {ordem: texto}}
-    for pos, (cid, ordem, doc, forca, casados) in enumerate(_busca_lexical(pergunta, empresa_id, visibilidades)):
+    for pos, (cid, ordem, doc, forca, casados) in enumerate(_busca_lexical(pergunta, empresa_id, visibilidades, vetados=sorted(vetados))):
         g = lex.setdefault(cid, {"pos": pos, "forca": 0, "casados": 0, "trechos": {}})
         g["forca"] = max(g["forca"], forca); g["casados"] = max(g["casados"], casados)
         if len(g["trechos"]) < 3:
@@ -426,7 +437,7 @@ def buscar(pergunta, empresa_id, visibilidades, k=3):
     with db.conectar() as con:
         for cid in sorted(score, key=score.get, reverse=True)[:k]:
             row = con.execute("SELECT * FROM conteudos WHERE id=? AND empresa_id=?", (cid, empresa_id)).fetchone()
-            if not row or row["visibilidade"] not in visibilidades:
+            if not row or row["visibilidade"] not in visibilidades or cid in vetados:
                 continue
             prefixo = f"{row['titulo']}. "
             achados = {**vet.get(cid, {}).get("trechos", {}), **lex.get(cid, {}).get("trechos", {})}

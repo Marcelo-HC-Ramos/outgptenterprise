@@ -358,6 +358,156 @@ chk("verificação pública não expõe e-mail nem ids", not any(k in v for k in
 adm.req("PUT", f"/api/cursos/{cp}", {"titulo": "Integração de TI v2", "descricao": "d", "nivel": "Iniciante"})
 chk("certificado guarda o título da época (não muda ao renomear o curso)", Cli().req("GET", f"/api/verificar/{cert['codigo']}")[1]["curso_titulo"] == "Integração de TI")
 chk("excluir o curso não apaga o certificado", adm.req("DELETE", f"/api/cursos/{cp}")[0] == 200 and Cli().req("GET", f"/api/verificar/{cert['codigo']}")[0] == 200)
+# ========== DEPARTAMENTOS (RBAC por função): trilhas e conteúdos por área ==========
+_g = m.req("POST", "/api/empresas", {"nome": "Gama"}); gama = _g[1]["id"]
+for nome, email, tipo in [("Gil Admin", "gil@gama.com", "admin"), ("Gabi RH", "gabi@gama.com", "funcionario"), ("Hugo TI", "hugo@gama.com", "funcionario"),
+                          ("Ivo Sem Depto", "ivo@gama.com", "funcionario"), ("Eva Externa", "eva@gama.com", "colaborador_externo")]:
+    m.req("POST", "/api/usuarios", {"empresa_id": gama, "nome": nome, "email": email, "senha": "senhaforte123", "tipo": tipo})
+gadm, gabi, hugo, ivo, eva = Cli(), Cli(), Cli(), Cli(), Cli()
+for cl, e in ((gadm, "gil@gama.com"), (gabi, "gabi@gama.com"), (hugo, "hugo@gama.com"), (ivo, "ivo@gama.com"), (eva, "eva@gama.com")):
+    cl.req("POST", "/api/login", {"email": e, "senha": "senhaforte123"})
+
+# --- cadastro de departamentos ---
+s, d = gadm.req("POST", "/api/departamentos", {"nome": "RH", "descricao": "Pessoas e cultura"}); dep_rh = d.get("id")
+chk("departamentos: admin cria", s == 200 and dep_rh, d)
+dep_ti = gadm.req("POST", "/api/departamentos", {"nome": "TI"})[1]["id"]
+chk("departamentos: nome único por empresa (sem diferenciar maiúsculas)", gadm.req("POST", "/api/departamentos", {"nome": "rh"})[0] == 409)
+chk("departamentos: mesmo nome em outra empresa é permitido", adm.req("POST", "/api/departamentos", {"nome": "RH"})[0] == 200)
+chk("departamentos: funcionário não lista nem cria", gabi.req("POST", "/api/departamentos", {"nome": "X"})[0] == 403 and gabi.req("GET", "/api/departamentos")[0] == 403)
+chk("departamentos: nome obrigatório", gadm.req("POST", "/api/departamentos", {"nome": "  "})[0] == 400)
+gl = gadm.req("GET", "/api/departamentos")[1]["itens"]
+chk("departamentos: lista só os da própria empresa, com contagens", sorted(x["nome"] for x in gl) == ["RH", "TI"] and all(x["usuarios"] == 0 and x["conteudos"] == 0 for x in gl), gl)
+acme_dep = adm.req("GET", "/api/departamentos")[1]["itens"][0]["id"]
+chk("departamentos: admin não edita nem apaga os de outra empresa", gadm.req("PUT", f"/api/departamentos/{acme_dep}", {"nome": "Hack"})[0] == 404 and gadm.req("DELETE", f"/api/departamentos/{acme_dep}")[0] == 404)
+chk("departamentos: renomear", gadm.req("PUT", f"/api/departamentos/{dep_ti}", {"nome": "TI e Dados", "descricao": "Tecnologia"})[0] == 200 and "TI e Dados" in [x["nome"] for x in gadm.req("GET", "/api/departamentos")[1]["itens"]])
+chk("departamentos: renomear para um nome que já existe = 409", gadm.req("PUT", f"/api/departamentos/{dep_ti}", {"nome": "RH"})[0] == 409)
+chk("departamentos: master lista e cria em qualquer empresa", m.req("GET", f"/api/departamentos?empresa_id={gama}")[0] == 200 and m.req("POST", "/api/departamentos", {"empresa_id": gama, "nome": "Financeiro"})[0] == 200)
+
+# --- departamento do usuário ---
+ids_u = {u["email"]: u["id"] for u in gadm.req("GET", "/api/usuarios")[1]["itens"]}
+chk("usuários: admin define o departamento", gadm.req("PUT", f"/api/usuarios/{ids_u['gabi@gama.com']}", {"departamento_id": dep_rh})[0] == 200 and gadm.req("PUT", f"/api/usuarios/{ids_u['hugo@gama.com']}", {"departamento_id": dep_ti})[0] == 200)
+ul = {u["email"]: u for u in gadm.req("GET", "/api/usuarios")[1]["itens"]}
+chk("usuários: lista mostra o departamento (ou nada)", ul["gabi@gama.com"]["departamento"] == "RH" and ul["hugo@gama.com"]["departamento"] == "TI e Dados" and ul["ivo@gama.com"]["departamento"] is None, [(e, u["departamento"]) for e, u in ul.items()])
+chk("usuários: departamento de outra empresa é recusado", gadm.req("PUT", f"/api/usuarios/{ids_u['ivo@gama.com']}", {"departamento_id": acme_dep})[0] == 400)
+chk("usuários: valor inválido (texto, booleano) é recusado", gadm.req("PUT", f"/api/usuarios/{ids_u['ivo@gama.com']}", {"departamento_id": "abc"})[0] == 400 and gadm.req("PUT", f"/api/usuarios/{ids_u['ivo@gama.com']}", {"departamento_id": True})[0] == 400)
+s, d = gadm.req("POST", "/api/usuarios", {"nome": "Nina Nova", "email": "nina@gama.com", "senha": "senhaforte123", "tipo": "funcionario", "departamento_id": dep_rh})
+chk("usuários: criar já com departamento", s == 200 and {u["email"]: u for u in gadm.req("GET", "/api/usuarios")[1]["itens"]}["nina@gama.com"]["departamento_id"] == dep_rh, d)
+chk("usuários: criar com departamento de outra empresa = 400", gadm.req("POST", "/api/usuarios", {"nome": "Z", "email": "z@gama.com", "senha": "senhaforte123", "tipo": "funcionario", "departamento_id": acme_dep})[0] == 400)
+nina = d["id"]
+gadm.req("PUT", f"/api/usuarios/{nina}", {"nome": "Nina N."})
+chk("usuários: editar sem o campo mantém o departamento", {u["email"]: u for u in gadm.req("GET", "/api/usuarios")[1]["itens"]}["nina@gama.com"]["departamento_id"] == dep_rh)
+gadm.req("PUT", f"/api/usuarios/{nina}", {"departamento_id": None})
+chk("usuários: departamento nulo remove o vínculo", {u["email"]: u for u in gadm.req("GET", "/api/usuarios")[1]["itens"]}["nina@gama.com"]["departamento_id"] is None)
+eu = gabi.req("GET", "/api/eu")[1]; chk("/api/eu traz o departamento", eu["departamento"] == "RH" and eu["departamento_id"] == dep_rh and ivo.req("GET", "/api/eu")[1]["departamento"] is None, eu)
+
+# --- conteúdos com público por departamento ---
+def novo(cod, tit, cat, texto, perg, resp, deps=None, vis="internos"):
+    corpo = {"codigo": cod, "titulo": tit, "categoria": cat, "texto": texto, "pergunta_exemplo": perg, "resposta_exemplo": resp, "visibilidade": vis}
+    if deps is not None: corpo["departamentos"] = deps
+    return gadm.req("POST", "/api/conteudos", corpo)
+GERAIS = [("G_P1", "Horário do refeitório", "O refeitório funciona das 11h30 às 14h, de segunda a sexta.", "Qual o horário do refeitório?", "Das 11h30 às 14h."),
+          ("G_P2", "Estacionamento", "O estacionamento é gratuito para funcionários e tem 40 vagas cobertas.", "O estacionamento é pago?", "Não, é gratuito para funcionários."),
+          ("G_P3", "Copa e café", "A copa tem café e água à vontade; a geladeira é limpa toda sexta.", "Quando a geladeira é limpa?", "Toda sexta-feira."),
+          ("G_P4", "Recepção", "A recepção atende das 8h às 18h e registra todos os visitantes.", "Quem registra os visitantes?", "A recepção."),
+          ("G_P5", "Biblioteca interna", "A biblioteca interna empresta livros por 15 dias, renováveis uma vez.", "Por quantos dias empresto um livro?", "Por 15 dias.")]
+for cod, tit, texto, perg, resp in GERAIS:
+    chk(f"conteúdo geral {cod} criado (sem departamentos = todos)", novo(cod, tit, "Geral", texto, perg, resp)[0] == 200)
+s, d = novo("G_RH", "Cofre financeiro", "Pessoas", "Procedimento zorbax do cofre financeiro: a senha do cofre fica com o RH e só é entregue com a assinatura do diretor de pessoas.",
+            "Como acesso o cofre zorbax financeiro?", "SEGREDO-RH-ALFA: assinatura do diretor de pessoas.", [dep_rh]); id_rh = d.get("id"); chk("conteúdo restrito ao RH criado", s == 200 and id_rh, d)
+s, d = novo("G_TI", "Rotação de chaves", "Tecnologia", "Procedimento quantix de rotação das chaves do servidor: executar toda sexta-feira com dois engenheiros.",
+            "Como rotaciono as chaves quantix?", "SEGREDO-TI-BETA: toda sexta com dois engenheiros.", [dep_ti]); id_ti = d.get("id"); chk("conteúdo restrito à TI criado", s == 200 and id_ti, d)
+s, d = novo("G_AMBOS", "Crachás de acesso", "Pessoas", "Os crachás de acesso das áreas de RH e de TI são emitidos pela portaria mediante chamado aprovado.",
+            "Como peço o crachá das áreas de RH e TI?", "SEGREDO-AMBOS-GAMA: crachá azul pela portaria.", [dep_rh, dep_ti]); id_ambos = d.get("id"); chk("conteúdo para RH e TI criado", s == 200 and id_ambos, d)
+s, d = novo("G_PUBTI", "Sala de servidores", "Geral", "A sala de servidores só pode ser aberta pela equipe de TI, com registro em livro.", "Quem abre a sala de servidores?", "A equipe de TI.", [dep_ti], vis="todos")
+id_pubti = d.get("id"); chk("conteúdo 'todos' restrito à TI criado", s == 200 and id_pubti, d)
+cods = lambda cl: sorted(i["codigo"] for i in cl.req("GET", "/api/conteudos")[1]["itens"])
+GER = sorted(c[0] for c in GERAIS)
+chk("biblioteca: admin vê tudo", cods(gadm) == sorted(GER + ["G_RH", "G_TI", "G_AMBOS", "G_PUBTI"]), cods(gadm))
+chk("biblioteca: RH vê os gerais, os do RH e os dos dois", cods(gabi) == sorted(GER + ["G_RH", "G_AMBOS"]), cods(gabi))
+chk("biblioteca: TI vê os gerais, os da TI e os dos dois", cods(hugo) == sorted(GER + ["G_TI", "G_AMBOS", "G_PUBTI"]), cods(hugo))
+chk("biblioteca: sem departamento só vê os gerais", cods(ivo) == GER, cods(ivo))
+chk("biblioteca: só o admin vê o público de cada conteúdo", [i for i in gadm.req("GET", "/api/conteudos")[1]["itens"] if i["codigo"] == "G_AMBOS"][0]["departamentos"] == sorted([dep_rh, dep_ti])
+    and all("departamentos" not in i for i in gabi.req("GET", "/api/conteudos")[1]["itens"]) and "departamentos" not in gabi.req("GET", "/api/conteudos")[1])
+chk("biblioteca: master vê tudo da empresa escolhida", sorted(i["codigo"] for i in m.req("GET", f"/api/conteudos?empresa_id={gama}")[1]["itens"]) == sorted(GER + ["G_RH", "G_TI", "G_AMBOS", "G_PUBTI"]))
+chk("detalhe por id respeita o departamento (nada de vazar pelo id)", hugo.req("GET", f"/api/conteudos/{id_rh}")[0] == 404 and ivo.req("GET", f"/api/conteudos/{id_ti}")[0] == 404 and gabi.req("GET", f"/api/conteudos/{id_rh}")[0] == 200)
+dg = gadm.req("GET", f"/api/conteudos/{id_ambos}")[1]; chk("detalhe do admin traz o público; o do funcionário não", dg["departamentos"] == sorted([dep_rh, dep_ti]) and "departamentos" not in gabi.req("GET", f"/api/conteudos/{id_ambos}")[1], dg.get("departamentos"))
+sug_ivo = ivo.req("GET", "/api/sugestoes")[1]["itens"]; sug_hugo = hugo.req("GET", "/api/sugestoes")[1]["itens"]
+chk("sugestões de perguntas não revelam conteúdo de outro departamento", "Como acesso o cofre zorbax financeiro?" not in sug_ivo + sug_hugo and "Como rotaciono as chaves quantix?" not in sug_ivo and len(sug_ivo) == 5, (sug_ivo, sug_hugo))
+gadm.req("PUT", f"/api/usuarios/{ids_u['eva@gama.com']}", {"departamento_id": dep_ti})
+chk("visibilidade e departamento valem juntos (externo na TI vê só o 'todos' da TI)", cods(eva) == ["G_PUBTI"], cods(eva))
+gadm.req("PUT", f"/api/usuarios/{ids_u['eva@gama.com']}", {"departamento_id": None})
+chk("externo sem departamento não vê o conteúdo restrito", cods(eva) == [])
+
+# --- trilhas: cursos e lições por departamento ---
+tit = lambda cl: sorted(c["titulo"] for c in cl.req("GET", "/api/cursos")[1]["itens"])
+nlic = lambda cl, t: next(c["licoes"] for c in cl.req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == t)
+chk("trilha: admin vê todos os cursos", tit(gadm) == ["Geral", "Pessoas", "Tecnologia"], tit(gadm))
+chk("trilha: RH vê Geral e Pessoas", tit(gabi) == ["Geral", "Pessoas"], tit(gabi))
+chk("trilha: TI vê Geral, Pessoas e Tecnologia", tit(hugo) == ["Geral", "Pessoas", "Tecnologia"], tit(hugo))
+chk("trilha: sem departamento só vê o curso Geral", tit(ivo) == ["Geral"], tit(ivo))
+chk("trilha: lições contadas só entre as visíveis", nlic(gadm, "Geral") == 6 and nlic(hugo, "Geral") == 6 and nlic(gabi, "Geral") == 5 and nlic(ivo, "Geral") == 5
+    and nlic(gadm, "Pessoas") == 2 and nlic(gabi, "Pessoas") == 2 and nlic(hugo, "Pessoas") == 1,
+    {"admin Geral": nlic(gadm, "Geral"), "hugo Geral": nlic(hugo, "Geral"), "gabi Geral": nlic(gabi, "Geral"), "ivo Geral": nlic(ivo, "Geral"), "admin Pessoas": nlic(gadm, "Pessoas"), "gabi Pessoas": nlic(gabi, "Pessoas"), "hugo Pessoas": nlic(hugo, "Pessoas")})
+pessoas = next(c["id"] for c in gadm.req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Pessoas")
+tecno = next(c["id"] for c in gadm.req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Tecnologia")
+chk("trilha: curso inteiro de outro departamento dá 404", ivo.req("GET", f"/api/cursos/{pessoas}")[0] == 404 and gabi.req("GET", f"/api/cursos/{tecno}")[0] == 404)
+chk("trilha: detalhe do TI no curso Pessoas traz só a lição liberada", [l["codigo"] for l in hugo.req("GET", f"/api/cursos/{pessoas}")[1]["licoes"]] == ["G_AMBOS"]
+    and sorted(l["codigo"] for l in gabi.req("GET", f"/api/cursos/{pessoas}")[1]["licoes"]) == ["G_AMBOS", "G_RH"])
+chk("trilha: não conclui nem responde lição de outro departamento", hugo.req("POST", f"/api/cursos/{pessoas}/licoes/{id_rh}/concluir", {})[0] == 404 and hugo.req("POST", f"/api/cursos/{pessoas}/licoes/{id_rh}/responder", {"opcao": 0})[0] == 404
+    and ivo.req("POST", f"/api/cursos/{pessoas}/licoes/{id_rh}/concluir", {})[0] == 404)
+opc_hugo = json.dumps(hugo.req("GET", f"/api/cursos/{pessoas}")[1]); opc_gabi = json.dumps(gabi.req("GET", f"/api/cursos/{pessoas}")[1])
+chk("quiz: alternativas erradas não vazam resposta de outro departamento", "SEGREDO-RH-ALFA" not in opc_hugo and "SEGREDO-RH-ALFA" in opc_gabi, ("hugo tem RH-ALFA" if "SEGREDO-RH-ALFA" in opc_hugo else "ok"))
+geral_ivo = json.dumps(ivo.req("GET", f"/api/cursos/{next(c['id'] for c in ivo.req('GET', '/api/cursos')[1]['itens'] if c['titulo'] == 'Geral')}")[1])
+chk("quiz: quem não tem departamento não vê nenhuma resposta restrita", "SEGREDO-" not in geral_ivo)
+hugo.req("POST", f"/api/cursos/{pessoas}/licoes/{id_ambos}/concluir", {})
+cp_h = next(c for c in hugo.req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Pessoas"); cp_g = next(c for c in gabi.req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Pessoas")
+chk("trilha: o progresso é medido só sobre as lições da pessoa", cp_h["percentual"] == 100 and cp_g["percentual"] == 0, (cp_h["percentual"], cp_g["percentual"]))
+chk("trilha: certificado sai ao concluir a trilha da própria área", hugo.req("POST", f"/api/cursos/{pessoas}/certificado", {})[0] == 200 and gabi.req("POST", f"/api/cursos/{pessoas}/certificado", {})[0] == 400)
+
+# --- assistente (RAG): a busca nunca traz conteúdo de outro departamento ---
+PERG = "Como acesso o cofre zorbax financeiro e qual a senha?"
+r_ivo = ivo.req("POST", "/api/chat", {"pergunta": PERG})[1]; r_hugo = hugo.req("POST", "/api/chat", {"pergunta": PERG})[1]; r_gabi = gabi.req("POST", "/api/chat", {"pergunta": PERG})[1]
+chk("assistente: RH recebe o conteúdo do RH como fonte", "G_RH" in [f["codigo"] for f in r_gabi.get("fontes", [])], r_gabi.get("fontes"))
+chk("assistente: TI e sem departamento não recebem o conteúdo do RH", "G_RH" not in [f["codigo"] for f in r_hugo.get("fontes", [])] and "G_RH" not in [f["codigo"] for f in r_ivo.get("fontes", [])]
+    and "diretor de pessoas" not in json.dumps(r_hugo) and "diretor de pessoas" not in json.dumps(r_ivo), (r_hugo.get("fontes"), r_ivo.get("fontes")))
+s_ivo = Cli(); s_ivo.cookie = ivo.cookie
+s, tipo_ct, ev = s_ivo.stream("/api/chat/stream", {"pergunta": PERG})
+chk("assistente (streaming): também respeita o departamento", s == 200 and ev and "diretor de pessoas" not in json.dumps([e[1] for e in ev]) and "G_RH" not in json.dumps([e[1].get("fontes") for e in ev if e[0] == "fim"]))
+
+# --- mudar o público de um conteúdo ---
+base_rh = gadm.req("GET", f"/api/conteudos/{id_rh}")[1]
+corpo_rh = {k: base_rh[k] for k in ("titulo", "categoria", "texto", "pergunta_exemplo", "resposta_exemplo", "contem_pii", "visibilidade")}
+chk("editar conteúdo sem o campo 'departamentos' mantém o público (nunca libera sem querer)", gadm.req("PUT", f"/api/conteudos/{id_rh}", corpo_rh)[0] == 200 and "G_RH" not in cods(ivo) and "G_RH" in cods(gabi))
+chk("editar com lista vazia libera para todos", gadm.req("PUT", f"/api/conteudos/{id_rh}", {**corpo_rh, "departamentos": []})[0] == 200 and "G_RH" in cods(ivo) and "G_RH" in cods(hugo))
+chk("editar com departamentos restringe de novo", gadm.req("PUT", f"/api/conteudos/{id_rh}", {**corpo_rh, "departamentos": [dep_rh]})[0] == 200 and "G_RH" not in cods(ivo) and "G_RH" not in cods(hugo) and "G_RH" in cods(gabi))
+chk("editar com departamento de outra empresa = 400 (e não muda nada)", gadm.req("PUT", f"/api/conteudos/{id_rh}", {**corpo_rh, "departamentos": [acme_dep]})[0] == 400 and "G_RH" not in cods(ivo))
+n_antes = len(cods(gadm))
+chk("criar com departamentos inválidos (outra empresa, texto, booleano) = 400, sem criar", [novo("G_X1", "x", "Geral", "x" * 30, None, None, [acme_dep])[0], novo("G_X2", "x", "Geral", "x" * 30, None, None, "abc")[0], novo("G_X3", "x", "Geral", "x" * 30, None, None, [True])[0]] == [400, 400, 400] and len(cods(gadm)) == n_antes)
+chk("admin de outra empresa usa o próprio departamento, não o da Gama", adm.req("POST", "/api/conteudos", {"codigo": "A_X", "titulo": "x", "categoria": "Geral", "texto": "x" * 30, "departamentos": [dep_rh]})[0] == 400)
+
+# --- excluir departamento ---
+s, d = gadm.req("DELETE", f"/api/departamentos/{dep_rh}"); chk("excluir departamento com conteúdo restrito é recusado (não libera sem querer)", s == 409 and "restritos" in d["mensagem"], d)
+chk("departamento recusado continua existindo e os usuários seguem nele", "RH" in [x["nome"] for x in gadm.req("GET", "/api/departamentos")[1]["itens"]] and gabi.req("GET", "/api/eu")[1]["departamento"] == "RH")
+dep_tmp = gadm.req("POST", "/api/departamentos", {"nome": "Temporário"})[1]["id"]; gadm.req("PUT", f"/api/usuarios/{nina}", {"departamento_id": dep_tmp})
+chk("excluir departamento sem conteúdo funciona e solta os usuários", gadm.req("DELETE", f"/api/departamentos/{dep_tmp}")[0] == 200 and {u["email"]: u for u in gadm.req("GET", "/api/usuarios")[1]["itens"]}["nina@gama.com"]["departamento_id"] is None)
+chk("funcionário não exclui departamento", gabi.req("DELETE", f"/api/departamentos/{dep_ti}")[0] == 403)
+chk("contagens do departamento no painel", {x["nome"]: (x["usuarios"], x["conteudos"]) for x in gadm.req("GET", "/api/departamentos")[1]["itens"]}["RH"] == (1, 2), gadm.req("GET", "/api/departamentos")[1]["itens"])
+
+# --- arquivo e CSV com público ---
+s, d = gadm.req("POST", "/api/conteudos/arquivo", {"nome": "manual_ti.txt", "dados": b64("Manual interno da TI sobre o procedimento vortex de backup semanal dos servidores.".encode()), "categoria": "Manuais", "visibilidade": "internos", "departamentos": [dep_ti]})
+id_arq = d.get("id"); chk("arquivo enviado com público restrito", s == 200 and id_arq, d)
+chk("arquivo restrito: TI vê, RH e sem departamento não", any(i["id"] == id_arq for i in hugo.req("GET", "/api/conteudos")[1]["itens"]) and not any(i["id"] == id_arq for i in gabi.req("GET", "/api/conteudos")[1]["itens"]) and not any(i["id"] == id_arq for i in ivo.req("GET", "/api/conteudos")[1]["itens"]))
+r_arq = gabi.req("POST", "/api/chat", {"pergunta": "Qual o procedimento vortex de backup semanal?"})[1]
+chk("assistente: arquivo restrito à TI não aparece para o RH", id_arq not in [f["conteudo_id"] for f in r_arq.get("fontes", [])], r_arq.get("fontes"))
+csv_rh = "id,categoria,procedimento_titulo,contexto_documental,pergunta_utilizador,resposta_esperada,contem_pii\nG_CSV1,Pessoas,Férias do RH,Procedimento csvrh de férias coletivas da empresa.,Como funcionam as férias coletivas?,Pelo calendário do RH.,nao\n"
+s, d = gadm.req("POST", "/api/conteudos/importar", {"csv": csv_rh, "visibilidade": "internos", "departamentos": [dep_rh]}); chk("CSV importado com público restrito", s == 200 and d["importados"] == 1, d)
+chk("CSV restrito: RH vê, TI não", "G_CSV1" in cods(gabi) and "G_CSV1" not in cods(hugo) and "G_CSV1" not in cods(ivo))
+gadm.req("POST", "/api/conteudos/importar", {"csv": csv_rh, "visibilidade": "internos"})
+chk("importar de novo sem o campo mantém o público", "G_CSV1" not in cods(hugo) and "G_CSV1" in cods(gabi))
+chk("CSV com departamento de outra empresa = 400", gadm.req("POST", "/api/conteudos/importar", {"csv": csv_rh, "departamentos": [acme_dep]})[0] == 400)
+chk("excluir conteúdo restrito remove o vínculo (departamento volta a poder ser apagado)", gadm.req("DELETE", f"/api/conteudos/{id_ti}")[0] == 200
+    and {x["nome"]: x["conteudos"] for x in gadm.req("GET", "/api/departamentos")[1]["itens"]}["TI e Dados"] == 3)  # G_AMBOS, G_PUBTI e o arquivo ainda o usam
+chk("a Acme não foi afetada (conteúdos e cursos intactos)", len(func.req("GET", "/api/cursos")[1]["itens"]) >= 12 and len(func.req("GET", "/api/conteudos")[1]["itens"]) >= 100)
 # ========== SEGURANÇA: origem das requisições (CSRF) e Codespaces ==========
 chk("CSRF: origem estranha é bloqueada (403)", Cli().req("POST", "/api/login", {"email": "dono@teste.com", "senha": PW}, origin="https://site-malicioso.com")[0] == 403)
 chk("CSRF: a própria origem do site é aceita", Cli().req("POST", "/api/login", {"email": "dono@teste.com", "senha": PW}, origin=B)[0] == 200)

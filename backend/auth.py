@@ -110,3 +110,38 @@ def encerrar_sessoes_do_usuario(con, usuario_id):
 def visibilidades_do(tipo):
     """Quais níveis de visibilidade de conteúdo o tipo de usuário enxerga."""
     return ["todos", "internos"] if tipo in INTERNOS else ["todos"]
+
+
+# ---------- Departamentos (RBAC por função) ----------
+VE_TUDO = ("master", "admin")      # não são limitados por departamento: administram os conteúdos
+
+
+def filtro_conteudo(usuario, alias="k"):
+    """(sql, parâmetros) que limitam a tabela `conteudos` (com esse alias) ao que o usuário pode ver: nível de visibilidade E departamento.
+    Conteúdo sem departamentos é de todos; com departamentos, só desses (usuário sem departamento só vê os gerais)."""
+    vis = visibilidades_do(usuario["tipo"])
+    sql = f"{alias}.visibilidade IN ({','.join('?' * len(vis))})"
+    params = list(vis)
+    if usuario["tipo"] not in VE_TUDO:
+        sql += (f" AND (NOT EXISTS (SELECT 1 FROM conteudo_departamentos cd WHERE cd.conteudo_id = {alias}.id)"
+                f" OR EXISTS (SELECT 1 FROM conteudo_departamentos cd WHERE cd.conteudo_id = {alias}.id AND cd.departamento_id = ?))")
+        params.append(usuario["departamento_id"])        # None (sem departamento) nunca casa: só os conteúdos gerais
+    return sql, params
+
+
+def conteudos_vetados(con, usuario, empresa_id):
+    """Ids dos conteúdos da empresa que o departamento do usuário NÃO pode ver (para a busca do assistente)."""
+    if usuario["tipo"] in VE_TUDO:
+        return []
+    return [r[0] for r in con.execute(
+        "SELECT k.id FROM conteudos k WHERE k.empresa_id = ? "
+        "AND EXISTS (SELECT 1 FROM conteudo_departamentos cd WHERE cd.conteudo_id = k.id) "
+        "AND NOT EXISTS (SELECT 1 FROM conteudo_departamentos cd WHERE cd.conteudo_id = k.id AND cd.departamento_id = ?)",
+        (empresa_id, usuario["departamento_id"]))]
+
+
+def definir_publico(con, conteudo_id, departamento_ids):
+    """Define os departamentos que podem ver o conteúdo (lista vazia = todos). Não faz commit."""
+    con.execute("DELETE FROM conteudo_departamentos WHERE conteudo_id = ?", (conteudo_id,))
+    con.executemany("INSERT INTO conteudo_departamentos (conteudo_id, departamento_id) VALUES (?, ?)",
+                    [(conteudo_id, d) for d in departamento_ids])

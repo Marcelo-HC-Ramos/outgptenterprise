@@ -3,7 +3,8 @@
 - Cada categoria de conteúdo vira um curso (categorias grandes são divididas em partes de até 12 lições).
 - Cada lição é um conteúdo; quando ele tem pergunta e resposta de exemplo, vira uma pergunta de múltipla escolha
   cujas alternativas erradas vêm das respostas de outros conteúdos da mesma empresa.
-- O usuário só vê lições de conteúdos que sua visibilidade permite (colaborador externo: apenas "todos").
+- O usuário só vê lições de conteúdos que sua visibilidade permite (colaborador externo: apenas "todos") e que seu departamento
+  pode ver: cada pessoa recebe uma trilha própria (admins veem tudo).
 """
 import json
 import math
@@ -11,7 +12,7 @@ import random
 import re
 import secrets
 
-from auth import visibilidades_do
+from auth import filtro_conteudo
 
 PARTE_MAX = 12
 LICAO_MAX_CHARS = 6000        # documentos maiores (manuais, PDFs) ficam só na busca do assistente, não viram lição
@@ -69,7 +70,7 @@ def sincronizar(con, empresa_id):
 
 
 # ---------- Perguntas de verificação ----------
-def _quiz(con, k, vis):
+def _quiz(con, k, usuario):
     """Questão de múltipla escolha de um conteúdo (dict com pergunta, opcoes, indice) ou None. Determinística."""
     if not k["pergunta_exemplo"] or not k["resposta_exemplo"]:
         g = con.execute("SELECT pergunta, correta, erradas FROM quiz_gerados WHERE conteudo_id=?", (k["id"],)).fetchone()
@@ -80,9 +81,10 @@ def _quiz(con, k, vis):
         rnd.shuffle(opcoes)
         return {"pergunta": g["pergunta"], "opcoes": opcoes, "indice": opcoes.index(g["correta"]), "ia": True}
     correta = k["resposta_exemplo"].strip()
+    fsql, fparams = filtro_conteudo(usuario, "conteudos")     # as alternativas erradas também não podem vazar conteúdo de outro departamento
     outros = con.execute(
         f"SELECT categoria, resposta_exemplo FROM conteudos WHERE empresa_id=? AND id<>? AND resposta_exemplo IS NOT NULL "
-        f"AND visibilidade IN ({_marcas(vis)}) ORDER BY id", [k["empresa_id"], k["id"], *vis]).fetchall()
+        f"AND {fsql} ORDER BY id", [k["empresa_id"], k["id"], *fparams]).fetchall()
     mesma, resto, vistos = [], [], {correta}
     for o in outros:
         t = o["resposta_exemplo"].strip()
@@ -102,12 +104,12 @@ def _quiz(con, k, vis):
 
 # ---------- Consultas ----------
 def _linhas(con, usuario, empresa_id, curso_id=None):
-    vis = visibilidades_do(usuario["tipo"])
+    fsql, fparams = filtro_conteudo(usuario, "k")
     sql = (f"SELECT c.id AS curso_id, c.titulo AS curso, c.descricao, c.categoria AS curso_categoria, c.nivel, k.*, i.ordem AS posicao, "
            "p.concluida_em, p.acertou FROM cursos c JOIN curso_itens i ON i.curso_id=c.id JOIN conteudos k ON k.id=i.conteudo_id "
            "LEFT JOIN progresso_licoes p ON p.curso_id=c.id AND p.conteudo_id=k.id AND p.usuario_id=? "
-           f"WHERE c.empresa_id=? AND k.visibilidade IN ({_marcas(vis)})")
-    params = [usuario["id"], empresa_id, *vis]
+           f"WHERE c.empresa_id=? AND {fsql}")
+    params = [usuario["id"], empresa_id, *fparams]
     if curso_id:
         sql += " AND c.id=?"
         params.append(curso_id)
@@ -154,10 +156,9 @@ def detalhe(con, usuario, empresa_id, curso_id):
     linhas = _linhas(con, usuario, empresa_id, curso_id)
     if not linhas:
         return None
-    vis = visibilidades_do(usuario["tipo"])
     licoes = []
     for r in linhas:
-        q = _quiz(con, r, vis)
+        q = _quiz(con, r, usuario)
         licoes.append({"conteudo_id": r["id"], "codigo": r["codigo"], "titulo": r["titulo"], "texto": r["texto"],
                        "minutos": _minutos(r["texto"]), "concluida": bool(r["concluida_em"]),
                        "acertou": None if r["acertou"] is None else bool(r["acertou"]),
@@ -186,7 +187,7 @@ def concluir(con, usuario, empresa_id, curso_id, conteudo_id):
 def responder_quiz(con, usuario, empresa_id, curso_id, conteudo_id, opcao):
     """Corrige a pergunta de verificação. Só a primeira tentativa conta para a pontuação; a lição é concluída."""
     lic = _licao_do_curso(con, usuario, empresa_id, curso_id, conteudo_id)
-    q = _quiz(con, lic, visibilidades_do(usuario["tipo"])) if lic else None
+    q = _quiz(con, lic, usuario) if lic else None
     if not q:
         return None
     correta = opcao == q["indice"]

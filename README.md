@@ -18,6 +18,12 @@ Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma r
 
 **Vai apresentar?** O roteiro de 5 a 8 minutos, com as perguntas que funcionam bem, está em **[DEMO.md](DEMO.md)**.
 
+## Departamentos (acesso por função)
+Em *Usuários* o administrador cria **departamentos** (RH, TI, Financeiro...) e define o de cada pessoa. Na *Biblioteca*, cada conteúdo pode ser **de todos** ou
+restrito a alguns departamentos. Quem não pertence a eles não vê o conteúdo na biblioteca, nos cursos (cada pessoa recebe uma trilha própria, com progresso e
+certificado calculados só sobre o que lhe cabe) nem nas respostas do assistente. Administradores veem tudo. Sem restrição, o conteúdo é de todos, então nada muda
+para quem não usa departamentos.
+
 ## Colocar no seu domínio (Cloudflare)
 Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas e sem cartão). Passo a passo, segurança, limites em **[CLOUDFLARE.md](CLOUDFLARE.md)**. Para ficar no ar **24 horas sem o seu computador**, num VPS com instalador pronto: **[SERVIDOR.md](SERVIDOR.md)**.
 ## Rodar online pelo GitHub (Codespaces)

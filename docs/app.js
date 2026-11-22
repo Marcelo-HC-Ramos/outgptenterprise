@@ -57,6 +57,7 @@ const Dados = {
   sugestoes: () => api("/api/sugestoes" + qEmpresa()),
   conteudos: () => api("/api/conteudos" + qEmpresa()),
   conteudo: id => api(`/api/conteudos/${id}`),
+  departamentos: () => api("/api/departamentos" + qEmpresa()),
   chat: (pergunta, historico, aoTexto) => chatStream(pergunta, historico, aoTexto),
 };
 
@@ -242,6 +243,7 @@ async function telaInicio() {
   if (semEmpresa()) { view.innerHTML = cabecalho("Início", "Bem-vindo ao OutGPT Enterprise.") + avisoSemEmpresa(); ligarSeletorEmpresa(telaInicio); return; }
   const primeiro = estado.usuario.nome.split(" ")[0];
   view.innerHTML = `${cabecalho(`Olá, ${esc(primeiro)} 👋`, "Tudo o que você precisa para aprender e resolver dúvidas do dia a dia.")}
+    ${estado.usuario.departamento ? `<p class="trilha-info">🧭 Sua trilha: <span class="badge">${esc(estado.usuario.departamento)}</span> <span class="muted">Os cursos e as normas abaixo são os da sua área, além dos gerais da empresa.</span></p>` : ""}
     <form class="busca-grande" id="busca"><input id="busca-q" placeholder="Pergunte qualquer coisa sobre os procedimentos da empresa..." aria-label="Pergunte ao assistente" maxlength="1000" required><button class="btn primary">Perguntar</button></form>
     <div class="chips-linha" id="sug"></div>
     <div id="painel-admin"></div>
@@ -518,20 +520,24 @@ async function telaBiblioteca() {
   view.innerHTML = cabecalho("Biblioteca", "Conteúdos que alimentam o assistente e os cursos.") + `<div class="card">Carregando...</div>`;
   ligarSeletorEmpresa(telaBiblioteca);
   let d; try { d = await Dados.conteudos(); } catch (err) { return erroTela(err); }
+  const temDeps = d.pode_editar && (d.departamentos || []).length > 0;
+  const nomeDep = id => (d.departamentos || []).find(x => x.id === id)?.nome || "?";
   const acoes = d.pode_editar ? `<button class="btn" id="imp">⬆ Importar CSV</button><button class="btn" id="arq">📄 Enviar arquivo</button><button class="btn primary" id="novo">+ Novo conteúdo</button>` : "";
   view.innerHTML = cabecalho("Biblioteca", `${d.total} conteúdo(s) disponíveis para você.`, acoes) + `
-    <div class="card"><div class="row2"><input id="c-q" placeholder="Filtrar por título, código ou texto..." aria-label="Filtrar conteúdos">
-      <select id="c-cat"><option value="">Todas as categorias</option>${d.categorias.map(c => `<option>${esc(c)}</option>`).join("")}</select></div>
+    <div class="card"><div class="${temDeps ? "row3" : "row2"}"><input id="c-q" placeholder="Filtrar por título, código ou texto..." aria-label="Filtrar conteúdos">
+      <select id="c-cat"><option value="">Todas as categorias</option>${d.categorias.map(c => `<option>${esc(c)}</option>`).join("")}</select>
+      ${temDeps ? `<select id="c-dep" aria-label="Filtrar por departamento"><option value="">Todos os públicos</option><option value="geral">Gerais (todos os departamentos)</option>${d.departamentos.map(x => `<option value="${x.id}">${esc(x.nome)}</option>`).join("")}</select>` : ""}</div>
       <p class="muted" id="c-total"></p><div class="table-wrap"><table><thead><tr><th>Código</th><th>Título</th><th>Categoria</th><th>Visível para</th><th></th></tr></thead><tbody id="c-body"></tbody></table></div></div>`;
   ligarSeletorEmpresa(telaBiblioteca);
   const pintar = () => {
-    const q = $("#c-q").value.toLowerCase(), cat = $("#c-cat").value;
-    const itens = d.itens.filter(c => (!cat || c.categoria === cat) && `${c.codigo} ${c.titulo} ${c.resumo}`.toLowerCase().includes(q));
+    const q = $("#c-q").value.toLowerCase(), cat = $("#c-cat").value, fd = $("#c-dep")?.value || "";
+    const doDep = c => !fd || (fd === "geral" ? !(c.departamentos || []).length : (c.departamentos || []).includes(+fd));
+    const itens = d.itens.filter(c => (!cat || c.categoria === cat) && doDep(c) && `${c.codigo} ${c.titulo} ${c.resumo}`.toLowerCase().includes(q));
     $("#c-total").textContent = `${itens.length} de ${d.total} conteúdo(s)`;
     $("#c-body").innerHTML = itens.map(c => `<tr><td>${esc(c.codigo)}</td><td>${c.arquivo_nome ? "📄 " : ""}${esc(c.titulo)}${c.contem_pii ? ' <span class="badge warn">PII</span>' : ""}</td><td>${esc(c.categoria)}</td>
-      <td><span class="badge ${c.visibilidade === "todos" ? "ok" : ""}">${c.visibilidade === "todos" ? "Todos (inclui externos)" : "Somente internos"}</span></td>
+      <td><span class="badge ${c.visibilidade === "todos" ? "ok" : ""}">${c.visibilidade === "todos" ? "Todos (inclui externos)" : "Somente internos"}</span>${(c.departamentos || []).length ? `<br><span class="badge soft" title="Só estes departamentos (e os administradores) veem este conteúdo">🏷 ${c.departamentos.map(id => esc(nomeDep(id))).join(", ")}</span>` : ""}</td>
       <td class="acoes-linha"><button class="btn mini" data-ver="${c.id}">Ver</button>${d.pode_editar ? `<button class="btn mini" data-edit="${c.id}">Editar</button><button class="btn mini danger" data-del="${c.id}">Excluir</button>` : ""}</td></tr>`).join("");
-    view.querySelectorAll("[data-ver]").forEach(b => b.onclick = async () => { try { const c = await Dados.conteudo(+b.dataset.ver); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}${c.arquivo_nome ? " · arquivo " + esc(c.arquivo_nome) : ""}</p>${md(c.texto)}`, { larga: true }); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
+    view.querySelectorAll("[data-ver]").forEach(b => b.onclick = async () => { try { const c = await Dados.conteudo(+b.dataset.ver); janela(c.titulo, `<p class="muted">${esc(c.codigo)} · ${esc(c.categoria)}${c.arquivo_nome ? " · arquivo " + esc(c.arquivo_nome) : ""}${(c.departamentos || []).length ? " · restrito a: " + c.departamentos.map(id => esc(nomeDep(id))).join(", ") : ""}</p>${md(c.texto)}`, { larga: true }); } catch (e) { janela("Erro", `<p>${esc(e.message)}</p>`); } });
     view.querySelectorAll("[data-edit]").forEach(b => b.onclick = async () => formConteudo(await api(`/api/conteudos/${b.dataset.edit}`), d.categorias));
     view.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
       const c = d.itens.find(x => x.id === +b.dataset.del);
@@ -539,7 +545,7 @@ async function telaBiblioteca() {
       try { await api(`/api/conteudos/${c.id}`, { method: "DELETE" }); telaBiblioteca(); } catch (err) { janela("Erro", `<p>${esc(err.message)}</p>`); }
     });
   };
-  $("#c-q").oninput = pintar; $("#c-cat").onchange = pintar; pintar();
+  $("#c-q").oninput = pintar; $("#c-cat").onchange = pintar; if ($("#c-dep")) $("#c-dep").onchange = pintar; pintar();
   if ($("#novo")) $("#novo").onclick = () => formConteudo(null, d.categorias);
   if ($("#arq")) $("#arq").onclick = () => formArquivo(d.categorias);
   if ($("#imp")) $("#imp").onclick = () => formImportar();
@@ -547,56 +553,95 @@ async function telaBiblioteca() {
 }
 
 const datalistCats = cats => `<datalist id="lista-cats">${(cats || []).map(c => `<option value="${esc(c)}">`).join("")}</datalist>`;
-function formConteudo(c, cats, opc = {}) {
+// Público por departamento (RBAC): sem seleção = todos os departamentos veem; com seleção, só eles (e os administradores).
+async function departamentosDaEmpresa() { try { return (await Dados.departamentos()).itens; } catch { return []; } }
+function campoPublico(deps, marcados = []) {
+  if (!deps.length) return "";           // a empresa ainda não tem departamentos: nada a escolher
+  const restrito = marcados.length > 0;
+  return `<fieldset class="publico"><legend>Quem pode ver (departamentos)</legend>
+    <label class="opt"><input type="radio" name="f-pub" value="todos" ${restrito ? "" : "checked"}><span>Todos os departamentos</span></label>
+    <label class="opt"><input type="radio" name="f-pub" value="alguns" ${restrito ? "checked" : ""}><span>Somente os escolhidos:</span></label>
+    <div class="pub-lista">${deps.map(x => `<label class="opt"><input type="checkbox" class="f-dep" value="${x.id}" ${marcados.includes(x.id) ? "checked" : ""}><span>${esc(x.nome)}</span></label>`).join("")}</div>
+    <p class="muted">Quem não está nesses departamentos não vê este conteúdo na biblioteca, nos cursos nem nas respostas do assistente. Administradores sempre veem.</p></fieldset>`;
+}
+function ligarPublico(modal) {          // marcar um departamento seleciona "Somente os escolhidos"
+  modal.querySelectorAll(".f-dep").forEach(x => x.onchange = () => { if (x.checked) modal.querySelector('input[name="f-pub"][value="alguns"]').checked = true; });
+}
+function lerPublico(modal) {            // undefined = a janela não tem o seletor; [] = todos; [ids] = restrito
+  if (!modal.querySelector(".f-dep")) return undefined;
+  const alguns = modal.querySelector('input[name="f-pub"]:checked')?.value === "alguns";
+  const ids = [...modal.querySelectorAll(".f-dep:checked")].map(x => +x.value);
+  if (alguns && !ids.length) throw new Error('Escolha pelo menos um departamento ou marque "Todos os departamentos".');
+  return alguns ? ids : [];
+}
+
+async function formConteudo(c, cats, opc = {}) {
   const novo = !c || opc.semId;
-  janela(novo ? "Novo conteúdo" : "Editar conteúdo", `
+  const deps = await departamentosDaEmpresa();
+  const d = janela(novo ? "Novo conteúdo" : "Editar conteúdo", `
     ${novo ? `<label class="field">Código (opcional)<input id="f-codigo" maxlength="60" placeholder="Ex.: SOP_RH_30"></label>` : `<p class="muted">Código: ${esc(c.codigo)}${c.arquivo_nome ? " · arquivo " + esc(c.arquivo_nome) : ""}</p>`}
     <label class="field">Título *<input id="f-titulo" maxlength="200" required value="${esc(c?.titulo)}"></label>
     <div class="row2"><label class="field">Categoria (vira um curso)<input id="f-cat" list="lista-cats" maxlength="100" value="${esc(c?.categoria || "Geral")}"></label>${datalistCats(cats)}
       <label class="field">Visível para<select id="f-vis"><option value="internos" ${c?.visibilidade !== "todos" ? "selected" : ""}>Somente internos</option>
         <option value="todos" ${c?.visibilidade === "todos" ? "selected" : ""}>Todos (inclui colaboradores externos)</option></select></label></div>
+    ${campoPublico(deps, c?.departamentos || [])}
     <label class="field">Conteúdo *<textarea id="f-texto" maxlength="400000" rows="9" required>${esc(c?.texto)}</textarea></label>
     <label class="field">Pergunta de exemplo (melhora a busca e gera a pergunta de verificação do curso)<input id="f-perg" maxlength="500" value="${esc(c?.pergunta_exemplo)}"></label>
     <label class="field">Resposta de exemplo (resposta correta da pergunta acima)<textarea id="f-resp" maxlength="2000" rows="3">${esc(c?.resposta_exemplo)}</textarea></label>
     <label class="opt"><input type="checkbox" id="f-pii" ${c?.contem_pii ? "checked" : ""}><span>Este conteúdo trata de dados pessoais (PII)</span></label>`,
-    { larga: true, aoSalvar: async () => {
+    { larga: true, aoSalvar: async modal => {
       const corpo = { titulo: $("#f-titulo").value, categoria: $("#f-cat").value, texto: $("#f-texto").value, pergunta_exemplo: $("#f-perg").value, resposta_exemplo: $("#f-resp").value, visibilidade: $("#f-vis").value, contem_pii: $("#f-pii").checked };
+      const pub = lerPublico(modal);
+      if (pub !== undefined) corpo.departamentos = pub;     // ao editar, sempre envia o que está na tela (nunca libera sem querer)
       if (novo) await api("/api/conteudos", { method: "POST", body: { ...corpo, codigo: $("#f-codigo")?.value, empresa_id: estado.empresaId } });
       else await api(`/api/conteudos/${c.id}`, { method: "PUT", body: corpo });
       if (opc.aoCriar) opc.aoCriar(); else telaBiblioteca();
     } });
+  ligarPublico(d);
 }
 
-function formArquivo(cats) {
-  janela("Enviar arquivo", `
+async function formArquivo(cats) {
+  const deps = await departamentosDaEmpresa();
+  const d = janela("Enviar arquivo", `
     <p class="muted">O texto do arquivo é dividido em trechos e indexado: o assistente passa a responder com base nele. Formatos: <strong>.txt, .md, .pdf, .docx</strong> (até 8 MB; PDF precisa ter texto selecionável).</p>
     <label class="field">Arquivo *<input type="file" id="f-arq" accept=".txt,.md,.pdf,.docx" required></label>
     <label class="field">Título (opcional; padrão: nome do arquivo)<input id="f-titulo" maxlength="200"></label>
     <div class="row2"><label class="field">Categoria<input id="f-cat" list="lista-cats" maxlength="100" value="Documentos"></label>${datalistCats(cats)}
-      <label class="field">Visível para<select id="f-vis"><option value="internos">Somente internos</option><option value="todos">Todos (inclui externos)</option></select></label></div>`,
-    { salvar: "Enviar e indexar", aoSalvar: async d => {
+      <label class="field">Visível para<select id="f-vis"><option value="internos">Somente internos</option><option value="todos">Todos (inclui externos)</option></select></label></div>
+    ${campoPublico(deps)}`,
+    { salvar: "Enviar e indexar", aoSalvar: async modal => {
       const arq = $("#f-arq").files[0]; if (!arq) throw new Error("Escolha um arquivo.");
       if (arq.size > 8_000_000) throw new Error("O arquivo passa de 8 MB.");
-      $("#j-salvar", d).textContent = "Processando...";
+      const pub = lerPublico(modal);
+      $("#j-salvar", modal).textContent = "Processando...";
       const b64 = await new Promise((ok, falha) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1]); r.onerror = falha; r.readAsDataURL(arq); });
-      const r = await api("/api/conteudos/arquivo", { method: "POST", body: { nome: arq.name, dados: b64, titulo: $("#f-titulo").value, categoria: $("#f-cat").value, visibilidade: $("#f-vis").value, empresa_id: estado.empresaId } });
+      const corpo = { nome: arq.name, dados: b64, titulo: $("#f-titulo").value, categoria: $("#f-cat").value, visibilidade: $("#f-vis").value, empresa_id: estado.empresaId };
+      if (pub?.length) corpo.departamentos = pub;
+      const r = await api("/api/conteudos/arquivo", { method: "POST", body: corpo });
       janela("Arquivo indexado", `<p>${r.caracteres.toLocaleString("pt-BR")} caracteres divididos em <strong>${r.trechos}</strong> trecho(s). O assistente já pode responder com base neste arquivo.</p>`);
       telaBiblioteca();
     } });
+  ligarPublico(d);
 }
 
-function formImportar() {
-  janela("Importar conteúdos de um CSV", `
+async function formImportar() {
+  const deps = await departamentosDaEmpresa();
+  const d = janela("Importar conteúdos de um CSV", `
     <p class="muted">Colunas: <code>id, categoria, procedimento_titulo, contexto_documental, pergunta_utilizador, resposta_esperada, contem_pii</code>. Conteúdos com o mesmo id são atualizados. Cada categoria vira um curso.</p>
     <label class="field">Arquivo CSV<input type="file" id="f-arq" accept=".csv,text/csv" required></label>
-    <label class="field">Visível para<select id="f-vis"><option value="internos">Somente internos</option><option value="todos">Todos (inclui externos)</option></select></label>`,
-    { salvar: "Importar", aoSalvar: async d => {
+    <label class="field">Visível para<select id="f-vis"><option value="internos">Somente internos</option><option value="todos">Todos (inclui externos)</option></select></label>
+    ${campoPublico(deps)}`,
+    { salvar: "Importar", aoSalvar: async modal => {
       const arq = $("#f-arq").files[0]; if (!arq) throw new Error("Escolha um arquivo.");
-      $("#j-salvar", d).textContent = "Importando...";
-      const r = await api("/api/conteudos/importar", { method: "POST", body: { csv: await arq.text(), visibilidade: $("#f-vis").value, empresa_id: estado.empresaId } });
+      const pub = lerPublico(modal);
+      $("#j-salvar", modal).textContent = "Importando...";
+      const corpo = { csv: await arq.text(), visibilidade: $("#f-vis").value, empresa_id: estado.empresaId };
+      if (pub?.length) corpo.departamentos = pub;       // sem seleção, não mexe no público de conteúdos que já existem
+      const r = await api("/api/conteudos/importar", { method: "POST", body: corpo });
       janela("Importação concluída", `<p>${r.importados} conteúdo(s) importados, indexados e organizados em cursos.</p>`);
       telaBiblioteca();
     } });
+  ligarPublico(d);
 }
 
 // ---------- Lacunas de conteúdo e feedback (admin) ----------
@@ -636,22 +681,53 @@ async function telaUsuarios() {
   if (semEmpresa()) { view.innerHTML = cabecalho("Usuários", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaUsuarios); return; }
   view.innerHTML = cabecalho("Usuários", "Logins de funcionários e colaboradores.") + `<div class="card">Carregando...</div>`;
   ligarSeletorEmpresa(telaUsuarios);
-  let d; try { d = await api("/api/usuarios" + qEmpresa()); } catch (err) { return erroTela(err); }
-  view.innerHTML = cabecalho("Usuários", `${d.itens.length} usuário(s).`, `<button class="btn primary" id="novo">+ Novo usuário</button>`) + `<div class="card table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Último acesso</th><th>Status</th><th></th></tr></thead><tbody>${d.itens.map(x => `
-    <tr><td>${esc(x.nome)}</td><td>${esc(x.email)}</td><td>${esc(ROTULOS[x.tipo])}</td><td>${quando(x.ultimo_login)}</td>
+  let d, deps; try { [d, deps] = await Promise.all([api("/api/usuarios" + qEmpresa()), Dados.departamentos()]); } catch (err) { return erroTela(err); }
+  const departamentos = deps.itens;
+  view.innerHTML = cabecalho("Usuários", `${d.itens.length} usuário(s).`, `<button class="btn primary" id="novo">+ Novo usuário</button>`) + `
+    <div class="card" id="deptos"></div>
+    <div class="card table-wrap"><table><thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Departamento</th><th>Último acesso</th><th>Status</th><th></th></tr></thead><tbody>${d.itens.map(x => `
+    <tr><td>${esc(x.nome)}</td><td>${esc(x.email)}</td><td>${esc(ROTULOS[x.tipo])}</td><td>${x.departamento ? `<span class="badge">${esc(x.departamento)}</span>` : '<span class="muted">—</span>'}</td><td>${quando(x.ultimo_login)}</td>
     <td><span class="badge ${x.ativo ? "ok" : "warn"}">${x.ativo ? "Ativo" : "Desativado"}</span></td>
     <td class="acoes-linha">${x.tipo === "master" ? "" : `<button class="btn mini" data-edit="${x.id}">Editar</button>`}</td></tr>`).join("")}</tbody></table></div>`;
   ligarSeletorEmpresa(telaUsuarios);
+
+  // --- departamentos: grupos de funções que formam as trilhas de aprendizado ---
+  const formDepto = (x = null) => janela(x ? "Renomear departamento" : "Novo departamento", `
+    <label class="field">Nome *<input id="dp-nome" maxlength="80" required value="${esc(x?.nome)}" placeholder="Ex.: RH, TI, Financeiro"></label>
+    <label class="field">Descrição (opcional)<input id="dp-desc" maxlength="200" value="${esc(x?.descricao)}"></label>`,
+    { salvar: x ? "Salvar" : "Criar departamento", aoSalvar: async () => {
+      const corpo = { nome: $("#dp-nome").value, descricao: $("#dp-desc").value };
+      if (x) await api(`/api/departamentos/${x.id}`, { method: "PUT", body: corpo });
+      else await api("/api/departamentos", { method: "POST", body: { ...corpo, empresa_id: estado.empresaId } });
+      telaUsuarios();
+    } });
+  $("#deptos").innerHTML = `<div class="section-title"><h2>Departamentos</h2><button class="btn mini" id="novo-dep">+ Novo departamento</button></div>
+    <p class="muted">Ligam pessoas a conteúdos: quem está em um departamento vê, na biblioteca, nos cursos e no assistente, os conteúdos gerais e os restritos à sua área. Cada pessoa recebe uma trilha própria. Administradores veem tudo.</p>
+    ${departamentos.length ? `<div class="deptos">${departamentos.map(x => `<div class="depto"><div><strong>${esc(x.nome)}</strong>${x.descricao ? `<div class="muted">${esc(x.descricao)}</div>` : ""}<small class="muted">${x.usuarios} pessoa(s) · ${x.conteudos} conteúdo(s) restrito(s)</small></div>
+      <span class="acoes-linha"><button class="btn mini" data-dren="${x.id}">Editar</button><button class="btn mini danger" data-ddel="${x.id}">Excluir</button></span></div>`).join("")}</div>`
+      : `<p class="muted">Nenhum departamento ainda. Crie o primeiro (por exemplo RH, TI ou Financeiro) para montar trilhas por área.</p>`}`;
+  $("#novo-dep").onclick = () => formDepto();
+  view.querySelectorAll("[data-dren]").forEach(b => b.onclick = () => formDepto(departamentos.find(i => i.id === +b.dataset.dren)));
+  view.querySelectorAll("[data-ddel]").forEach(b => b.onclick = async () => {
+    const x = departamentos.find(i => i.id === +b.dataset.ddel);
+    if (!(await confirmar(`Excluir o departamento "${x.nome}"? As ${x.usuarios} pessoa(s) dele ficam sem departamento.`))) return;
+    try { await api(`/api/departamentos/${x.id}`, { method: "DELETE" }); telaUsuarios(); } catch (err) { janela("Não foi possível excluir", `<p>${esc(err.message)}</p>`); }
+  });
+
+  // --- usuários ---
   const tipos = ehMaster() ? ["admin", "funcionario", "colaborador_interno", "colaborador_externo"] : ["funcionario", "colaborador_interno", "colaborador_externo"];
   const opcoes = sel => tipos.map(t => `<option value="${t}" ${t === sel ? "selected" : ""}>${ROTULOS[t]}</option>`).join("");
+  const opcoesDep = sel => `<option value="">— Sem departamento —</option>` + departamentos.map(x => `<option value="${x.id}" ${x.id === sel ? "selected" : ""}>${esc(x.nome)}</option>`).join("");
+  const depEscolhido = () => ($("#u-dep").value ? +$("#u-dep").value : null);
   const abrirNovo = () => janela("Novo usuário", `
     <label class="field">Nome *<input id="u-nome" maxlength="120" required></label>
     <label class="field">E-mail (será o login) *<input id="u-email" type="email" maxlength="160" required></label>
     <label class="field">Senha inicial * (mín. 10 caracteres, com letras e números)<input id="u-senha" type="password" autocomplete="new-password" required></label>
-    <label class="field">Perfil<select id="u-tipo">${opcoes("funcionario")}</select></label>
-    <p class="muted">Funcionários e colaboradores internos veem todos os conteúdos da empresa; colaboradores externos veem só os marcados como "Todos".</p>`,
+    <div class="row2"><label class="field">Perfil<select id="u-tipo">${opcoes("funcionario")}</select></label>
+      <label class="field">Departamento (define a trilha)<select id="u-dep">${opcoesDep(null)}</select></label></div>
+    <p class="muted">Funcionários e colaboradores internos veem os conteúdos gerais e os do seu departamento; colaboradores externos veem só os marcados como "Todos".</p>`,
     { salvar: "Criar usuário", aoSalvar: async () => {
-      await api("/api/usuarios", { method: "POST", body: { nome: $("#u-nome").value, email: $("#u-email").value, senha: $("#u-senha").value, tipo: $("#u-tipo").value, empresa_id: estado.empresaId } });
+      await api("/api/usuarios", { method: "POST", body: { nome: $("#u-nome").value, email: $("#u-email").value, senha: $("#u-senha").value, tipo: $("#u-tipo").value, departamento_id: depEscolhido(), empresa_id: estado.empresaId } });
       telaUsuarios();
     } });
   $("#novo").onclick = abrirNovo;
@@ -661,11 +737,12 @@ async function telaUsuarios() {
     janela("Editar usuário", `
       <p class="muted">${esc(x.email)}</p>
       <label class="field">Nome<input id="u-nome" maxlength="120" required value="${esc(x.nome)}"></label>
-      <label class="field">Perfil<select id="u-tipo" ${podeTipo ? "" : "disabled"}>${podeTipo ? opcoes(x.tipo) : `<option>${esc(ROTULOS[x.tipo])}</option>`}</select></label>
+      <div class="row2"><label class="field">Perfil<select id="u-tipo" ${podeTipo ? "" : "disabled"}>${podeTipo ? opcoes(x.tipo) : `<option>${esc(ROTULOS[x.tipo])}</option>`}</select></label>
+        <label class="field">Departamento (define a trilha)<select id="u-dep">${opcoesDep(x.departamento_id)}</select></label></div>
       <label class="opt"><input type="checkbox" id="u-ativo" ${x.ativo ? "checked" : ""}><span>Usuário ativo</span></label>
       <label class="field">Nova senha (deixe em branco para manter)<input id="u-senha" type="password" autocomplete="new-password"></label>`,
       { aoSalvar: async () => {
-        const corpo = { nome: $("#u-nome").value, ativo: $("#u-ativo").checked };
+        const corpo = { nome: $("#u-nome").value, ativo: $("#u-ativo").checked, departamento_id: depEscolhido() };
         if (podeTipo) corpo.tipo = $("#u-tipo").value;
         if ($("#u-senha").value) corpo.nova_senha = $("#u-senha").value;
         await api(`/api/usuarios/${x.id}`, { method: "PUT", body: corpo });

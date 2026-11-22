@@ -130,8 +130,10 @@ def empresa_alvo(ctx, fonte, obrigatoria=True):
 
 def dados_usuario(con, u):
     emp = con.execute("SELECT nome FROM empresas WHERE id=?", (u["empresa_id"],)).fetchone() if u["empresa_id"] else None
+    dep = con.execute("SELECT nome FROM departamentos WHERE id=?", (u["departamento_id"],)).fetchone() if u["departamento_id"] else None
     return {"id": u["id"], "nome": u["nome"], "email": u["email"], "tipo": u["tipo"], "empresa_id": u["empresa_id"],
-            "empresa": emp["nome"] if emp else None, "llm": llm.disponivel(), "modelo": llm.MODELO if llm.disponivel() else None}
+            "empresa": emp["nome"] if emp else None, "departamento_id": u["departamento_id"], "departamento": dep["nome"] if dep else None,
+            "llm": llm.disponivel(), "modelo": llm.MODELO if llm.disponivel() else None}
 
 
 def cookie_sessao(token, max_age):
@@ -252,10 +254,11 @@ def _preparar_chat(c):
     anterior = MARCADORES_PII.sub(" ", historico[-1]["pergunta"]).strip() if historico else ""
     com_llm = llm.disponivel()
     vis = auth.visibilidades_do(c.usuario["tipo"])
+    vetados = auth.conteudos_vetados(c.con, c.usuario, eid)       # conteúdos restritos a outros departamentos
 
     def achar(q):
         try:
-            itens = rag.buscar(q, eid, vis, k=3)
+            itens = rag.buscar(q, eid, vis, k=3, vetados=vetados)
         except Exception as e:
             raise Erro(503, f"Base vetorial indisponível ({type(e).__name__}). Rode: python rag.py reindexar")
         itens = [a for a in itens if rag.relevante(a, com_llm, PISO_VETOR)]
@@ -392,9 +395,8 @@ def h_historico(c):
 def h_sugestoes(c):
     """Perguntas típicas dos conteúdos que o usuário pode ver (atalhos na página inicial e no assistente)."""
     eid = empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [None])[0]}, obrigatoria=False)
-    vis = auth.visibilidades_do(c.usuario["tipo"])
-    sql = f"SELECT pergunta_exemplo FROM conteudos WHERE pergunta_exemplo IS NOT NULL AND visibilidade IN ({','.join('?' * len(vis))})"
-    params = list(vis)
+    fsql, params = auth.filtro_conteudo(c.usuario, "conteudos")
+    sql = f"SELECT pergunta_exemplo FROM conteudos WHERE pergunta_exemplo IS NOT NULL AND {fsql}"
     if eid:
         sql += " AND empresa_id=?"
         params.append(eid)
@@ -415,6 +417,28 @@ def _conteudo_permitido(c, cid):
     return r
 
 
+MAX_DEPARTAMENTOS = 50
+
+
+def _publico_do_corpo(c, eid, corpo):
+    """Departamentos que podem ver o conteúdo: lista de ids (vazia = todos) ou None se o campo não veio (não mexe no público)."""
+    if "departamentos" not in corpo:
+        return None
+    v = corpo["departamentos"]
+    if v in (None, ""):
+        return []
+    if not isinstance(v, list) or len(v) > MAX_DEPARTAMENTOS or any(isinstance(x, bool) or not isinstance(x, int) for x in v):
+        raise Erro(400, "Lista de departamentos inválida.")
+    ids = list(dict.fromkeys(v))
+    if ids and c.con.execute(f"SELECT COUNT(*) FROM departamentos WHERE empresa_id=? AND id IN ({','.join('?' * len(ids))})", [eid, *ids]).fetchone()[0] != len(ids):
+        raise Erro(400, "Há departamentos que não pertencem a esta empresa.")
+    return ids
+
+
+def _ids_publico(con, conteudo_id):
+    return [r[0] for r in con.execute("SELECT departamento_id FROM conteudo_departamentos WHERE conteudo_id=? ORDER BY departamento_id", (conteudo_id,))]
+
+
 def _dados_conteudo(corpo):
     vis = corpo.get("visibilidade", "internos")
     if vis not in ("todos", "internos"):
@@ -430,29 +454,43 @@ def _dados_conteudo(corpo):
 def h_conteudos(c):
     u = c.usuario
     eid = empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [None])[0]}, obrigatoria=False)
-    vis = auth.visibilidades_do(u["tipo"])
-    sql = f"SELECT {CAMPOS_LISTA} FROM conteudos WHERE visibilidade IN ({','.join('?' * len(vis))})"
-    params = list(vis)
+    fsql, params = auth.filtro_conteudo(u, "conteudos")
+    sql = f"SELECT {CAMPOS_LISTA} FROM conteudos WHERE {fsql}"
     if eid:
         sql += " AND empresa_id=?"
         params.append(eid)
     rows = [dict(r) for r in c.con.execute(sql + " ORDER BY categoria, codigo", params)]
-    return {"total": len(rows), "categorias": sorted({r["categoria"] for r in rows}), "itens": rows,
-            "pode_editar": u["tipo"] in ("master", "admin")}
+    out = {"total": len(rows), "categorias": sorted({r["categoria"] for r in rows}), "itens": rows,
+           "pode_editar": u["tipo"] in auth.VE_TUDO}
+    if u["tipo"] in auth.VE_TUDO:       # quem administra vê (e edita) o público de cada conteúdo
+        pub = {}
+        q = "SELECT cd.conteudo_id, cd.departamento_id FROM conteudo_departamentos cd JOIN conteudos k ON k.id=cd.conteudo_id"
+        for r in c.con.execute(q + (" WHERE k.empresa_id=?" if eid else "") + " ORDER BY cd.departamento_id", (eid,) if eid else ()):
+            pub.setdefault(r[0], []).append(r[1])
+        for r in rows:
+            r["departamentos"] = pub.get(r["id"], [])
+        dq = "SELECT id, nome FROM departamentos" + (" WHERE empresa_id=?" if eid else "") + " ORDER BY nome"
+        out["departamentos"] = [dict(r) for r in c.con.execute(dq, (eid,) if eid else ())]
+    return out
 
 
 @rota("GET", r"/api/conteudos/(\d+)")
 def h_conteudo(c):
     r = _conteudo_permitido(c, int(c.args[0]))
-    if r["visibilidade"] not in auth.visibilidades_do(c.usuario["tipo"]):
+    fsql, params = auth.filtro_conteudo(c.usuario, "conteudos")
+    if not c.con.execute(f"SELECT 1 FROM conteudos WHERE id=? AND {fsql}", [r["id"], *params]).fetchone():     # visibilidade E departamento
         raise Erro(404, "Conteúdo não encontrado.")
-    return {k: r[k] for k in CAMPOS_COMPLETO.split(",")}
+    out = {k: r[k] for k in CAMPOS_COMPLETO.split(",")}
+    if c.usuario["tipo"] in auth.VE_TUDO:
+        out["departamentos"] = _ids_publico(c.con, r["id"])
+    return out
 
 
 @rota("POST", "/api/conteudos", ("master", "admin"))
 def h_conteudo_criar(c):
     eid = empresa_alvo(c, c.corpo)
     d = _dados_conteudo(c.corpo)
+    publico = _publico_do_corpo(c, eid, c.corpo)
     codigo = texto(c.corpo.get("codigo"), "código", 60, False) or f"DOC_{int(time.time())}"
     try:
         cur = c.con.execute(
@@ -460,6 +498,8 @@ def h_conteudo_criar(c):
             (eid, codigo, d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["resposta_exemplo"], d["contem_pii"], d["visibilidade"], c.usuario["id"]))
     except sqlite3.IntegrityError:
         raise Erro(409, "Já existe um conteúdo com esse código nesta empresa.")
+    if publico:
+        auth.definir_publico(c.con, cur.lastrowid, publico)
     c.con.commit()
     rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cur.lastrowid,)).fetchone(), c.con)
     cursos.sincronizar(c.con, eid)
@@ -484,11 +524,14 @@ def h_conteudo_arquivo(c):
     vis = c.corpo.get("visibilidade", "internos")
     if vis not in ("todos", "internos"):
         raise Erro(400, "Visibilidade inválida.")
+    publico = _publico_do_corpo(c, eid, c.corpo)
     titulo = texto(c.corpo.get("titulo") or re.sub(r"[_\-]+", " ", Path(nome).stem).strip() or nome, "título", 200)
     codigo = f"ARQ_{int(time.time() * 1000)}"
     cur = c.con.execute(
         "INSERT INTO conteudos (empresa_id,codigo,titulo,categoria,texto,arquivo_nome,visibilidade,criado_por) VALUES (?,?,?,?,?,?,?,?)",
         (eid, codigo, titulo, texto(c.corpo.get("categoria") or "Documentos", "categoria", 100), conteudo, nome, vis, c.usuario["id"]))
+    if publico:
+        auth.definir_publico(c.con, cur.lastrowid, publico)
     c.con.commit()
     rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cur.lastrowid,)).fetchone(), c.con)
     cursos.sincronizar(c.con, eid)
@@ -517,11 +560,14 @@ def h_conteudo_editar(c):
     cid = int(c.args[0])
     atual = _conteudo_permitido(c, cid)
     d = _dados_conteudo(c.corpo)
+    publico = _publico_do_corpo(c, atual["empresa_id"], c.corpo)      # None = o corpo não trouxe o campo: mantém o público atual
     if d["texto"] != atual["texto"]:      # o conteúdo mudou: a pergunta gerada antes pode estar desatualizada
         c.con.execute("DELETE FROM quiz_gerados WHERE conteudo_id=?", (cid,))
     c.con.execute("UPDATE conteudos SET titulo=?,categoria=?,texto=?,pergunta_exemplo=?,resposta_exemplo=?,contem_pii=?,visibilidade=?,"
                   "atualizado_em=datetime('now','localtime') WHERE id=?",
                   (d["titulo"], d["categoria"], d["texto"], d["pergunta_exemplo"], d["resposta_exemplo"], d["contem_pii"], d["visibilidade"], cid))
+    if publico is not None:
+        auth.definir_publico(c.con, cid, publico)
     c.con.commit()
     rag.indexar_conteudo(c.con.execute("SELECT * FROM conteudos WHERE id=?", (cid,)).fetchone(), c.con)
     cursos.sincronizar(c.con, atual["empresa_id"])
@@ -542,8 +588,9 @@ def h_conteudo_excluir(c):
 @rota("POST", "/api/conteudos/importar", ("master", "admin"))
 def h_conteudo_importar(c):
     eid = empresa_alvo(c, c.corpo)
+    publico = _publico_do_corpo(c, eid, c.corpo)
     try:
-        n = rag.importar_csv(c.con, eid, str(c.corpo.get("csv") or ""), c.corpo.get("visibilidade", "internos"), c.usuario["id"])
+        n = rag.importar_csv(c.con, eid, str(c.corpo.get("csv") or ""), c.corpo.get("visibilidade", "internos"), c.usuario["id"], departamentos=publico)
     except ValueError as e:
         raise Erro(400, str(e))
     return {"importados": n}
@@ -560,6 +607,17 @@ def _usuario_gerenciavel(c, uid):
     return alvo
 
 
+def _id_departamento(c, eid, valor):
+    """Departamento escolhido para um usuário (id) ou None; precisa ser da mesma empresa dele."""
+    if valor in (None, "", 0):
+        return None
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise Erro(400, "Departamento inválido.")
+    if not c.con.execute("SELECT 1 FROM departamentos WHERE id=? AND empresa_id=?", (valor, eid)).fetchone():
+        raise Erro(400, "Departamento inválido para esta empresa.")
+    return valor
+
+
 def _tipo_permitido(c, tipo):
     permitidos = auth.TIPOS[1:] if c.usuario["tipo"] == "master" else auth.GERENCIAVEIS_POR_ADMIN
     if tipo not in permitidos:
@@ -570,8 +628,8 @@ def _tipo_permitido(c, tipo):
 @rota("GET", "/api/usuarios", ("master", "admin"))
 def h_usuarios(c):
     eid = empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [None])[0]}, obrigatoria=False)
-    sql = ("SELECT u.id,u.nome,u.email,u.tipo,u.ativo,u.empresa_id,e.nome AS empresa,u.ultimo_login,u.criado_em "
-           "FROM usuarios u LEFT JOIN empresas e ON e.id=u.empresa_id")
+    sql = ("SELECT u.id,u.nome,u.email,u.tipo,u.ativo,u.empresa_id,e.nome AS empresa,u.ultimo_login,u.criado_em,u.departamento_id,d.nome AS departamento "
+           "FROM usuarios u LEFT JOIN empresas e ON e.id=u.empresa_id LEFT JOIN departamentos d ON d.id=u.departamento_id")
     if eid:
         rows = c.con.execute(sql + " WHERE u.empresa_id=? ORDER BY u.nome", (eid,))
     else:
@@ -590,9 +648,10 @@ def h_usuario_criar(c):
     erro = auth.validar_senha_nova(c.corpo.get("senha"))
     if erro:
         raise Erro(400, erro)
+    dep = _id_departamento(c, eid, c.corpo.get("departamento_id"))
     try:
-        cur = c.con.execute("INSERT INTO usuarios (empresa_id,nome,email,senha_hash,tipo) VALUES (?,?,?,?,?)",
-                            (eid, nome, email, auth.hash_senha(c.corpo["senha"]), tipo))
+        cur = c.con.execute("INSERT INTO usuarios (empresa_id,nome,email,senha_hash,tipo,departamento_id) VALUES (?,?,?,?,?,?)",
+                            (eid, nome, email, auth.hash_senha(c.corpo["senha"]), tipo, dep))
     except sqlite3.IntegrityError:
         raise Erro(409, "Já existe um usuário com esse e-mail.")
     c.con.commit()
@@ -608,7 +667,8 @@ def h_usuario_editar(c):
     ativo = 1 if b.get("ativo", bool(alvo["ativo"])) else 0
     if alvo["id"] == c.usuario["id"] and not ativo:
         raise Erro(400, "Você não pode desativar a própria conta.")
-    c.con.execute("UPDATE usuarios SET nome=?, tipo=?, ativo=? WHERE id=?", (nome, tipo, ativo, alvo["id"]))
+    dep = _id_departamento(c, alvo["empresa_id"], b["departamento_id"]) if "departamento_id" in b else alvo["departamento_id"]
+    c.con.execute("UPDATE usuarios SET nome=?, tipo=?, ativo=?, departamento_id=? WHERE id=?", (nome, tipo, ativo, dep, alvo["id"]))
     if b.get("nova_senha"):
         erro = auth.validar_senha_nova(b["nova_senha"])
         if erro:
@@ -617,6 +677,64 @@ def h_usuario_editar(c):
                       (auth.hash_senha(b["nova_senha"]), alvo["id"]))
     if not ativo or b.get("nova_senha"):
         auth.encerrar_sessoes_do_usuario(c.con, alvo["id"])
+    c.con.commit()
+    return {"ok": True}
+
+
+# ----- departamentos (grupos de funções: ligam pessoas a conteúdos e formam as trilhas de aprendizado) -----
+def _departamento_gerenciavel(c, did):
+    r = c.con.execute("SELECT * FROM departamentos WHERE id=?", (did,)).fetchone()
+    if not r or (c.usuario["tipo"] != "master" and r["empresa_id"] != c.usuario["empresa_id"]):
+        raise Erro(404, "Departamento não encontrado.")
+    return r
+
+
+@rota("GET", "/api/departamentos", ("master", "admin"))
+def h_departamentos(c):
+    eid = empresa_alvo(c, {"empresa_id": (c.query.get("empresa_id") or [None])[0]}, obrigatoria=False)
+    sql = ("SELECT d.id, d.empresa_id, d.nome, d.descricao, "
+           "(SELECT COUNT(*) FROM usuarios u WHERE u.departamento_id=d.id) AS usuarios, "
+           "(SELECT COUNT(*) FROM conteudo_departamentos cd WHERE cd.departamento_id=d.id) AS conteudos FROM departamentos d")
+    rows = c.con.execute(sql + (" WHERE d.empresa_id=?" if eid else "") + " ORDER BY d.nome", (eid,) if eid else ())
+    return {"itens": [dict(r) for r in rows]}
+
+
+@rota("POST", "/api/departamentos", ("master", "admin"))
+def h_departamento_criar(c):
+    eid = empresa_alvo(c, c.corpo)
+    nome = texto(c.corpo.get("nome"), "nome do departamento", 80)
+    descricao = texto(c.corpo.get("descricao"), "descrição", 200, False) or None
+    if c.con.execute("SELECT COUNT(*) FROM departamentos WHERE empresa_id=?", (eid,)).fetchone()[0] >= MAX_DEPARTAMENTOS:
+        raise Erro(400, f"Limite de {MAX_DEPARTAMENTOS} departamentos por empresa.")
+    try:
+        cur = c.con.execute("INSERT INTO departamentos (empresa_id,nome,descricao) VALUES (?,?,?)", (eid, nome, descricao))
+    except sqlite3.IntegrityError:
+        raise Erro(409, "Já existe um departamento com esse nome nesta empresa.")
+    c.con.commit()
+    return {"id": cur.lastrowid}
+
+
+@rota("PUT", r"/api/departamentos/(\d+)", ("master", "admin"))
+def h_departamento_editar(c):
+    d = _departamento_gerenciavel(c, int(c.args[0]))
+    nome = texto(c.corpo.get("nome", d["nome"]), "nome do departamento", 80)
+    descricao = texto(c.corpo.get("descricao", d["descricao"]), "descrição", 200, False) or None
+    try:
+        c.con.execute("UPDATE departamentos SET nome=?, descricao=? WHERE id=?", (nome, descricao, d["id"]))
+    except sqlite3.IntegrityError:
+        raise Erro(409, "Já existe um departamento com esse nome nesta empresa.")
+    c.con.commit()
+    return {"ok": True}
+
+
+@rota("DELETE", r"/api/departamentos/(\d+)", ("master", "admin"))
+def h_departamento_excluir(c):
+    d = _departamento_gerenciavel(c, int(c.args[0]))
+    n = c.con.execute("SELECT COUNT(*) FROM conteudo_departamentos WHERE departamento_id=?", (d["id"],)).fetchone()[0]
+    if n:      # excluir liberaria esses conteúdos para todos sem ninguém perceber: o admin precisa decidir antes
+        raise Erro(409, f"Há {n} conteúdo(s) restritos a este departamento. Mude o público deles (Biblioteca) antes de excluir.")
+    c.con.execute("UPDATE usuarios SET departamento_id=NULL WHERE departamento_id=?", (d["id"],))
+    c.con.execute("DELETE FROM departamentos WHERE id=?", (d["id"],))
     c.con.commit()
     return {"ok": True}
 
