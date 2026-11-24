@@ -36,7 +36,6 @@ jobs:
         run: |
           python backend/tests/teste_proxy.py
           python backend/tests/teste_publicar.py
-          python backend/tests/teste_servidor.py
       - name: Resumo da falha
         if: failure()
         run: echo "::error title=Testes falharam::$(grep -E 'FAIL|Traceback|Error|falhas' /tmp/saida.txt | head -n 25 | tr '\n' '|')"
@@ -58,16 +57,6 @@ jobs:
           python-version: "3.11"
       - name: Validar o docker-compose.yml
         run: CLOUDFLARE_TUNNEL_TOKEN=teste docker compose config -q
-      - name: Instalador do servidor (gera os arquivos) e validar o docker-compose.servidor.yml
-        run: |
-          command -v shellcheck >/dev/null || sudo apt-get install -y shellcheck
-          shellcheck servidor/instalar.sh
-          OUTGPT_INSTALAR_CREDENCIAIS='{"AccountTag":"0123456789abcdef0123456789abcdef","TunnelSecret":"c2VjcmV0bw==","TunnelID":"4a110a74-9040-45e7-90c8-b6c8de879b5f"}' \
-            python3 servidor/instalar.py --gerar-apenas --sem-perguntas --sem-exemplos --dominio ci.exemplo.com.br
-          docker compose config -q
-          grep -q 'docker-compose.servidor.yml' .env
-          test -s cloudflared/config.yml && test -s cloudflared/credenciais.json
-          rm -rf .env cloudflared
       - name: Construir a imagem
         run: docker build -t outgpt .
       - name: Subir o contêiner (volume com dono root, como nas hospedagens)
@@ -86,17 +75,6 @@ jobs:
       - name: Log do contêiner (se falhou)
         if: failure()
         run: echo "::error title=Log do contêiner::$(docker logs outgpt 2>&1 | tail -n 30 | tr '\n' '|')"
-
-  devcontainer:
-    name: Codespaces (devcontainer)
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    steps:
-      - uses: actions/checkout@v4
-      - name: Construir o devcontainer e verificar o servidor
-        uses: devcontainers/ci@v0.3
-        with:
-          runCmd: bash .devcontainer/verificar.sh
 
   cloudflare:
     name: Túnel Cloudflare (ponta a ponta, sem conta)

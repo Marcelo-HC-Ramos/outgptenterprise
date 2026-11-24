@@ -2,7 +2,7 @@
 
 Uso: PUBLICAR.bat (ou: python publicar.py)
 
-Dois modos de criar o túnel (veja CLOUDFLARE.md):
+Dois modos de criar o túnel:
   - SEM CARTÃO (padrão): o próprio cloudflared cria o túnel e o registro DNS depois que você autoriza o domínio no navegador
     (cloudflared tunnel login). Não exige ativar o Zero Trust.
   - COM TOKEN: túnel criado no painel Zero Trust (que pede cartão/PayPal para ativar, mesmo no plano gratuito); cole o token aqui.

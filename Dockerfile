@@ -1,4 +1,4 @@
-# OutGPT Enterprise - imagem para publicar na internet (veja DEPLOY.md)
+# OutGPT Enterprise - imagem para publicar na internet (veja "Publicar com Docker" no README.md)
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \

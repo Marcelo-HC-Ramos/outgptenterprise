@@ -5,6 +5,8 @@ Projeto de Processamento de Linguagem Natural - Fatec Cotia, Ciência de Dados.
 
 **Equipe:** Marcelo Henrique do Carmo Ramos, Victor Henrique Duarte Cardoso
 
+**Site:** https://outgpt.ramosys.com.br (no ar enquanto o sistema está ligado no computador dos autores; veja "Visitar o site").
+
 ## Como usar (Windows) — dois cliques
 1. Dê dois cliques em **`INICIAR.bat`** (na pasta do projeto).
 2. Na primeira vez, a janela preta faz poucas perguntas: seu **login** (e-mail e senha), a **chave da IA** (pode pular e colar depois no site) e o nome da sua **empresa** (já carrega os 100 procedimentos do dataset do projeto).
@@ -16,8 +18,12 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 **Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
-**Vai apresentar?** Os **slides** (5 minutos), o roteiro da fala e o **roteiro do vídeo** do sistema estão em **[APRESENTACAO.md](APRESENTACAO.md)**. A demonstração ao vivo (plano B), com o roteiro cronometrado de 5 minutos, com as perguntas que funcionam bem e as respostas para dúvidas de professores e investidores, está em **[DEMO.md](DEMO.md)**.
-Para o relatório de engajamento e as trilhas por departamento aparecerem cheios, `DEMO_CRIAR.bat` cria dados de demonstração e `DEMO_REMOVER.bat` apaga tudo depois.
+## Visitar o site
+O endereço é **https://outgpt.ramosys.com.br**. O sistema roda no computador dos autores e o **Cloudflare Tunnel** entrega o HTTPS (sem abrir portas e sem cartão), então o site só responde enquanto o `PUBLICAR.bat` está aberto lá. Se aparecer o **erro 1033** da Cloudflare, o sistema está desligado nesse momento.
+
+O GitHub Pages não executa Python, então não serve para o sistema real (banco, logins e IA). A pasta `docs/` é o site, servido pelo próprio servidor Python.
+
+**No seu domínio:** com o domínio na Cloudflare (plano gratuito), dê dois cliques em `PUBLICAR.bat`: ele pergunta o domínio e cria o túnel depois que você autoriza o domínio no navegador (sem cartão). O site fica no ar enquanto o seu computador estiver ligado. Para ficar no ar **sem o seu computador**, use a imagem Docker, descrita em "Publicar com Docker".
 
 ## Modelo de negócio
 Implantação (setup fee de R$ 1.500 a R$ 7.000) mais assinatura mensal em três planos (**Starter** R$ 497, **Growth** R$ 1.497 e **Enterprise** a partir de R$ 3.497), com a conta de exemplo e o que já está pronto
@@ -37,19 +43,6 @@ para quem não usa departamentos.
 - **Privacidade:** o relatório é agregado (nomes e e-mails não aparecem), o tempo conta só a atenção ativa até a lição ser concluída, administradores ficam fora da análise e
   a pessoa é avisada na própria aula de que o tempo é medido.
 
-## Colocar no seu domínio (Cloudflare)
-Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas e sem cartão). Passo a passo, segurança, limites em **[CLOUDFLARE.md](CLOUDFLARE.md)**. Para ficar no ar **24 horas sem o seu computador**, num VPS com instalador pronto: **[SERVIDOR.md](SERVIDOR.md)**.
-## Rodar online pelo GitHub (Codespaces)
-[![Abrir no GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Marcelo-HC-Ramos/outgptenterprise?quickstart=1)
-
-O GitHub Pages não executa Python, então ele não serve para o sistema real. O que o GitHub oferece para rodar tudo (banco, login e IA) é o **Codespaces**: um computador na nuvem ligado a este repositório, com endereço HTTPS.
-1. (Opcional, antes de criar) Em *GitHub > Settings > Codespaces > Secrets*, crie o segredo `ANTHROPIC_API_KEY` com a chave da IA e libere este repositório para ele.
-2. Clique no botão acima (ou *Code > Codespaces > Create codespace on main*) e aguarde alguns minutos: ele instala tudo, cria a empresa com os 100 procedimentos e liga o servidor sozinho.
-3. No terminal aparece o **endereço do sistema** e o **token de primeiro acesso**. Abra o endereço, preencha "Primeiro acesso" (seu e-mail e senha) e entre.
-4. Para qualquer pessoa abrir o link: aba **PORTAS** > botão direito na porta 8000 > *Visibilidade da porta* > **Pública**.
-
-Limites: o Codespace **desliga sozinho** depois de um tempo sem uso (basta abri-lo de novo; o servidor liga junto e os dados continuam lá), usa a cota gratuita mensal da sua conta (confira em github.com/settings/billing) e é apagado após dias parado. Serve bem para apresentações e testes; para uso permanente, veja o `DEPLOY.md`.
-O GitHub Actions testa automaticamente o sistema, a imagem Docker e esta configuração a cada envio (aba *Actions*).
 ## O que a plataforma faz
 - Cada **empresa** cadastra seus conteúdos (procedimentos, manuais, FAQs; digitados, em CSV ou enviados como TXT/MD/PDF/DOCX) e seus usuários.
 - **Cursos:** cada categoria de conteúdo vira um curso automático (lições, perguntas de verificação e progresso por usuário); o admin também monta **cursos personalizados** escolhendo e ordenando lições, e pode gerar as perguntas de verificação com a IA. Ao concluir um curso, o usuário emite um **certificado** imprimível, com código verificável em `/verificar.html`.
@@ -71,15 +64,28 @@ Depois de entrar como master: **Usuários** (criar o admin, funcionários e cola
 ## Pesquisa com especialistas
 Arquivo separado e autônomo: `docs/pesquisa.html` (`http://localhost:8000/pesquisa.html`), com as abas **Responder** (pública) e **Resultados** (somente master, com exportação CSV). As respostas vão para o banco de dados do servidor.
 
-## Publicar na internet
-O sistema completo precisa do servidor (banco, logins e IA); por isso o GitHub Pages não serve. Veja **[DEPLOY.md](DEPLOY.md)**: Dockerfile, `render.yaml` e `fly.toml` prontos, tela de "Primeiro acesso" por token, HTTPS, backup (`python backup.py`) e cuidados de privacidade.
-O modo servidor foi testado localmente; o build Docker e a publicação em si ainda precisam ser executados na hospedagem escolhida.
+## Publicar com Docker (servidor sempre ligado)
+A imagem do `Dockerfile` é construída e testada a cada envio pelo GitHub Actions (x86 e ARM). Precisa de **disco persistente** para o banco (`/data`), de **HTTPS** na frente (o cookie de sessão é seguro) e de **1 GB de memória, no mínimo** (o servidor usa ~650 MB com o modelo de busca carregado).
+```
+docker build -t outgpt .
+docker run -d --name outgpt --restart unless-stopped -p 127.0.0.1:8000:8000 -v outgpt-dados:/data -e OUTGPT_SETUP_TOKEN="troque-por-um-valor-longo" outgpt
+```
+Coloque um proxy com HTTPS na frente (por exemplo o Caddy). Ou use o `docker-compose.yml`, que já inclui o túnel da Cloudflare: copie `docker-compose.exemplo.env` para `.env`, preencha e rode `docker compose up -d --build`.
+Só para teste por HTTP puro, rode o contêiner com `-e OUTGPT_COOKIE_SECURE=0`.
+
+- **Primeiro acesso:** abra o endereço, informe o token (`OUTGPT_SETUP_TOKEN`), seu nome, e-mail e senha. Isso cria o usuário **master** e a tela deixa de existir. Depois, em *Administração > Inteligência artificial*, cole a chave da API.
+- **Backup:** `docker exec outgpt python backup.py /data/backups` (cópia consistente; mantém as 14 mais recentes). Copie a pasta para fora do servidor: um disco perdido sem backup perde tudo.
+- **Privacidade (LGPD):** os trechos dos manuais e as perguntas (já anonimizadas) vão à API da IA para gerar a resposta. Informe isso aos usuários e evite cadastrar dados pessoais nos conteúdos.
+- **Senhas:** não há recuperação por e-mail; o master redefine a senha de qualquer usuário na tela *Usuários*.
+- **Instância única:** o SQLite atende bem equipes pequenas e médias; não rode várias cópias do serviço no mesmo banco.
+- **Custos da IA:** cada pergunta é uma chamada paga (limite de 20 por minuto por usuário); para gastar menos use `OUTGPT_MODELO=claude-haiku-5-5`.
+- **Monitoramento:** o endereço `/saude` responde `ok`.
 
 ## Estrutura
 ```
 INICIAR.bat   Liga tudo com dois cliques (Windows)
 PUBLICAR.bat  Liga tudo e publica no seu domínio pelo Cloudflare Tunnel (no seu PC)
-servidor/     Instalador para um VPS sempre ligado (veja SERVIDOR.md)
+Dockerfile    Imagem para publicar em um servidor (docker-compose.yml inclui o túnel)
 docs/         Site (HTML/CSS/JS), servido pelo próprio servidor Python
 backend/      Servidor Python, banco SQLite, RAG, cursos e integração com a LLM
 ```
@@ -111,7 +117,17 @@ python rag.py importar "Nome da Empresa" data/sops_corporativos.csv internos   #
 python rag.py reindexar                                                         # refaz o índice de busca
 python configurar_llm.py                                                        # liga a IA pelo terminal
 python backup.py                                                                # cópia de segurança do banco (backend/backups)
+python demo_apresentacao.py criar                                               # departamentos e colaboradores simulados (remover: ... remover)
 ```
+
+## Testes
+O GitHub Actions roda tudo a cada envio (aba *Actions*). Na sua máquina, a partir da raiz do projeto:
+```
+python backend/tests/teste_sistema.py     # ponta a ponta: servidor, banco temporário e IA simulada (sem chave, sem custo)
+python backend/tests/teste_proxy.py       # IP real e domínio aceito atrás de proxy/Cloudflare (sem servidor)
+python backend/tests/teste_publicar.py    # assistente de publicação: token da Cloudflare e gravação no .env (sem rede)
+```
+Rode um de cada vez: o teste do sistema usa portas fixas.
 
 ## Desenvolvimento
 `seed_faker.py` gera respostas de TESTE da pesquisa para desenvolver as telas (`--limpar` remove). Nunca use esses dados como resultado de pesquisa.

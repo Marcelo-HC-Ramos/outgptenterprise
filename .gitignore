@@ -8,6 +8,6 @@ backend/data/modelo_busca/
 .venv/
 .vscode/
 backend/backups/
-# segredos do servidor (gerados por servidor/instalar.py): nunca vao para o GitHub
+# segredos do servidor (.env do docker-compose e credenciais do tunel): nunca vao para o GitHub
 /.env
 /cloudflared/
