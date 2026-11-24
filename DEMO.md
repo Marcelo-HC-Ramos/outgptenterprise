@@ -1,4 +1,6 @@
-# Roteiro de apresentação (5 minutos)
+# Demonstração ao vivo (plano B)
+
+> **A apresentação principal é feita com slides (5 minutos) e um vídeo do sistema.** O roteiro completo da fala e do vídeo está em **[APRESENTACAO.md](APRESENTACAO.md)**. Este arquivo é a **demonstração ao vivo**, para usar se o vídeo não tocar ou para responder perguntas mostrando o sistema.
 
 Tudo abaixo foi testado com a IA real (Claude). O roteiro mostra o produto funcionando e fecha com o modelo de negócio para os investidores.
 

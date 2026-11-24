@@ -16,7 +16,7 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 **Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
-**Vai apresentar?** O roteiro cronometrado de 5 minutos, com as perguntas que funcionam bem e as respostas para dúvidas de professores e investidores, está em **[DEMO.md](DEMO.md)**.
+**Vai apresentar?** Os **slides** (5 minutos), o roteiro da fala e o **roteiro do vídeo** do sistema estão em **[APRESENTACAO.md](APRESENTACAO.md)**. A demonstração ao vivo (plano B), com o roteiro cronometrado de 5 minutos, com as perguntas que funcionam bem e as respostas para dúvidas de professores e investidores, está em **[DEMO.md](DEMO.md)**.
 Para o relatório de engajamento e as trilhas por departamento aparecerem cheios, `DEMO_CRIAR.bat` cria dados de demonstração e `DEMO_REMOVER.bat` apaga tudo depois.
 
 ## Modelo de negócio
