@@ -1,4 +1,4 @@
--- OutGPT Enterprise - esquema SQLite (versão 5: multiempresa, autenticação, cursos e departamentos)
+-- OutGPT Enterprise - esquema SQLite (versão 6: multiempresa, autenticação, cursos, departamentos e engajamento)
 PRAGMA foreign_keys = ON;
 
 -- ===== Empresas (clientes da plataforma) =====
@@ -132,8 +132,27 @@ CREATE TABLE IF NOT EXISTS progresso_licoes (
   curso_id INTEGER NOT NULL REFERENCES cursos(id) ON DELETE CASCADE,
   conteudo_id INTEGER NOT NULL REFERENCES conteudos(id) ON DELETE CASCADE,
   concluida_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  acertou INTEGER,                      -- resultado da pergunta de verificação (NULL = não respondida)
+  acertou INTEGER,                      -- resultado da pergunta de verificação na 1ª tentativa (NULL = não respondida)
+  tentativas INTEGER NOT NULL DEFAULT 0,   -- quantas vezes respondeu a pergunta (mede a dificuldade da lição)
   PRIMARY KEY (usuario_id, curso_id, conteudo_id)
+);
+-- Tempo de estudo por lição: segundos de atenção ativa (aba aberta e com atividade), medidos no navegador e limitados pelo servidor.
+-- Só conta até a lição ser concluída. Alimenta o relatório de engajamento (agregado: nunca mostra nomes).
+CREATE TABLE IF NOT EXISTS licao_tempo (
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  curso_id INTEGER NOT NULL REFERENCES cursos(id) ON DELETE CASCADE,
+  conteudo_id INTEGER NOT NULL REFERENCES conteudos(id) ON DELETE CASCADE,
+  segundos INTEGER NOT NULL DEFAULT 0,
+  primeira_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  ultima_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (usuario_id, curso_id, conteudo_id)
+);
+-- Conquistas (badges) desbloqueadas por usuário; os critérios ficam em gamificacao.py
+CREATE TABLE IF NOT EXISTS conquistas (
+  usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+  codigo TEXT NOT NULL,
+  conquistada_em TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  PRIMARY KEY (usuario_id, codigo)
 );
 -- Perguntas de verificação geradas pela IA para lições sem pergunta de exemplo
 CREATE TABLE IF NOT EXISTS quiz_gerados (

@@ -129,6 +129,15 @@ def filtro_conteudo(usuario, alias="k"):
     return sql, params
 
 
+def conteudo_visivel(tipo, departamento_id, visibilidade, departamentos_do_conteudo):
+    """Mesma regra de `filtro_conteudo`, para quem agrega dados em Python (relatório de engajamento). Mantidas em sincronia por teste."""
+    if visibilidade not in visibilidades_do(tipo):
+        return False
+    if tipo in VE_TUDO:
+        return True
+    return not departamentos_do_conteudo or departamento_id in departamentos_do_conteudo
+
+
 def conteudos_vetados(con, usuario, empresa_id):
     """Ids dos conteúdos da empresa que o departamento do usuário NÃO pode ver (para a busca do assistente)."""
     if usuario["tipo"] in VE_TUDO:

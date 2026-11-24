@@ -11,6 +11,7 @@ import math
 import random
 import re
 import secrets
+from datetime import datetime
 
 from auth import filtro_conteudo
 
@@ -133,8 +134,11 @@ def listar(con, usuario, empresa_id):
         elif c["proxima"] is None:
             c["proxima"] = {"conteudo_id": r["id"], "titulo": r["titulo"]}
     out = list(cursos.values())
+    emitidos = {r["curso_id"]: r["codigo"] for r in con.execute("SELECT curso_id, codigo FROM certificados WHERE usuario_id=?", (usuario["id"],))}
     for c in out:
         c["percentual"] = round(100 * c["concluidas"] / c["licoes"])
+        c["faltam"] = c["licoes"] - c["concluidas"]                # lições que faltam para desbloquear o certificado
+        c["certificado"] = emitidos.get(c["id"])                    # código do certificado já emitido (ou None)
     return out
 
 
@@ -194,8 +198,42 @@ def responder_quiz(con, usuario, empresa_id, curso_id, conteudo_id, opcao):
     con.execute("INSERT OR IGNORE INTO progresso_licoes (usuario_id, curso_id, conteudo_id) VALUES (?,?,?)", (usuario["id"], curso_id, conteudo_id))
     con.execute("UPDATE progresso_licoes SET acertou=? WHERE usuario_id=? AND curso_id=? AND conteudo_id=? AND acertou IS NULL",
                 (1 if correta else 0, usuario["id"], curso_id, conteudo_id))
+    con.execute("UPDATE progresso_licoes SET tentativas = tentativas + 1 WHERE usuario_id=? AND curso_id=? AND conteudo_id=?",
+                (usuario["id"], curso_id, conteudo_id))
     con.commit()
     return {"correta": correta, "indice_correto": q["indice"], "resposta_certa": q["opcoes"][q["indice"]]}
+
+
+# ---------- Tempo de estudo por lição ----------
+TEMPO_MAX_BATIMENTO = 60          # segundos aceitos por aviso do navegador
+TEMPO_MAX_PRIMEIRO = 30           # o primeiro aviso de uma lição não pode passar disso
+TEMPO_MAX_LICAO = 4 * 3600        # teto por pessoa e lição (aba esquecida aberta não distorce a média)
+_FMT_TEMPO = "%Y-%m-%d %H:%M:%S"
+
+
+def registrar_tempo(con, usuario, empresa_id, curso_id, conteudo_id, segundos):
+    """Soma segundos de estudo ativo a uma lição. Devolve os segundos contados, ou None se a lição não existe para a pessoa.
+    O servidor não confia no relógio do navegador: o crédito é limitado pelo tempo REAL desde o aviso anterior. Administradores não entram
+    na métrica e, depois que a lição é concluída, o tempo deixa de contar (mede-se o tempo até assimilar)."""
+    if not _licao_do_curso(con, usuario, empresa_id, curso_id, conteudo_id):
+        return None
+    if usuario["tipo"] in ("master", "admin"):
+        return 0
+    chave = (usuario["id"], curso_id, conteudo_id)
+    if con.execute("SELECT 1 FROM progresso_licoes WHERE usuario_id=? AND curso_id=? AND conteudo_id=?", chave).fetchone():
+        return 0
+    credito = max(0, min(int(segundos), TEMPO_MAX_BATIMENTO))
+    atual = con.execute("SELECT segundos, ultima_em FROM licao_tempo WHERE usuario_id=? AND curso_id=? AND conteudo_id=?", chave).fetchone()
+    if atual:
+        decorrido = (datetime.now() - datetime.strptime(atual["ultima_em"], _FMT_TEMPO)).total_seconds()
+        credito = max(0, min(credito, int(decorrido) + 3))
+        con.execute("UPDATE licao_tempo SET segundos=?, ultima_em=datetime('now','localtime') WHERE usuario_id=? AND curso_id=? AND conteudo_id=?",
+                    (min(atual["segundos"] + credito, TEMPO_MAX_LICAO), *chave))
+    else:
+        credito = min(credito, TEMPO_MAX_PRIMEIRO)
+        con.execute("INSERT INTO licao_tempo (usuario_id, curso_id, conteudo_id, segundos) VALUES (?,?,?,?)", (*chave, credito))
+    con.commit()
+    return credito
 
 
 # ---------- Cursos personalizados (o admin escolhe e ordena as lições) ----------

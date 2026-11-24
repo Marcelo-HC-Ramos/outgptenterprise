@@ -22,6 +22,8 @@ from urllib.parse import parse_qs, urlparse
 import auth
 import cursos
 import db
+import engajamento
+import gamificacao
 import llm
 import pesquisa
 import rag
@@ -41,8 +43,10 @@ SITE = {  # lista fixa: nenhum outro arquivo é exposto
     "/app.js": ("app.js", "text/javascript; charset=utf-8", CSP_APP),
     "/pesquisa.html": ("pesquisa.html", "text/html; charset=utf-8", CSP_PESQUISA),
     "/verificar.html": ("verificar.html", "text/html; charset=utf-8", CSP_PESQUISA),
+    "/negocio.html": ("negocio.html", "text/html; charset=utf-8", CSP_APP),       # modelo de negócio (público, sem scripts)
 }
 SITE["/pesquisa"] = SITE["/pesquisa.html"]
+SITE["/negocio"] = SITE["/negocio.html"]
 
 _limites = {}            # chave -> [timestamps]
 _limites_lock = threading.Lock()
@@ -217,6 +221,15 @@ def h_senha(c):
     return {"ok": True}, {"Set-Cookie": cookie_sessao(token, int(auth.DURACAO_SESSAO.total_seconds()))}
 
 
+def _novas_conquistas(c, leve=False):
+    """Conquistas recém-desbloqueadas (a tela avisa a pessoa). Nunca derruba a ação principal."""
+    try:
+        return gamificacao.avaliar_chat(c.con, c.usuario) if leve else gamificacao.avaliar(c.con, c.usuario)
+    except Exception as e:
+        print(f"[aviso] conquistas: {type(e).__name__}: {e}", flush=True)
+        return []
+
+
 # ----- assistente (RAG + LLM) -----
 SEM_RESPOSTA = ("Não encontrei essa informação nos conteúdos disponíveis para você. "
                 "Para evitar respostas inventadas, consulte seu gestor ou abra um chamado.")
@@ -338,6 +351,7 @@ def h_chat(c):
         except llm.LLMIndisponivel as e:
             resp = _resposta_sem_llm(p, str(e))
     resp["id"] = _registrar_chat(c, p, resp, g)
+    resp["novas_conquistas"] = _novas_conquistas(c, leve=True)
     return resp
 
 
@@ -374,6 +388,7 @@ def h_chat_stream(c):
             except llm.LLMIndisponivel as e:
                 resp = _resposta_sem_llm(p, str(e))
         resp["id"] = _registrar_chat(c, p, resp, g)
+        resp["novas_conquistas"] = _novas_conquistas(c, leve=True)
         yield "fim", resp
     return Fluxo(gerar())
 
@@ -824,7 +839,7 @@ def h_curso(c):
 def h_licao_concluir(c):
     if not cursos.concluir(c.con, c.usuario, _eid(c), int(c.args[0]), int(c.args[1])):
         raise Erro(404, "Lição não encontrada.")
-    return {"ok": True}
+    return {"ok": True, "novas_conquistas": _novas_conquistas(c)}
 
 
 @rota("POST", r"/api/cursos/(\d+)/licoes/(\d+)/responder")
@@ -835,7 +850,58 @@ def h_licao_responder(c):
     r = cursos.responder_quiz(c.con, c.usuario, _eid(c), int(c.args[0]), int(c.args[1]), opcao)
     if r is None:
         raise Erro(404, "Pergunta não encontrada.")
-    return r
+    return {**r, "novas_conquistas": _novas_conquistas(c)}
+
+
+@rota("POST", r"/api/cursos/(\d+)/licoes/(\d+)/tempo")
+def h_licao_tempo(c):
+    """O navegador avisa a cada ~15 s quantos segundos de estudo ATIVO a pessoa gastou na lição (aba visível e com atividade)."""
+    limitar(f"tempo:{c.usuario['id']}", 120, 60)
+    seg = c.corpo.get("segundos")
+    if isinstance(seg, bool) or not isinstance(seg, int) or not 0 <= seg <= 600:
+        raise Erro(400, "Tempo inválido.")
+    contado = cursos.registrar_tempo(c.con, c.usuario, _eid(c), int(c.args[0]), int(c.args[1]), seg)
+    if contado is None:
+        raise Erro(404, "Lição não encontrada.")
+    return {"ok": True, "contado": contado}
+
+
+@rota("GET", "/api/conquistas")
+def h_conquistas(c):
+    return gamificacao.perfil(c.con, c.usuario)
+
+
+def _filtros_engajamento(c):
+    eid = _eid(c)
+    bruto = (c.query.get("departamento_id") or [""])[0]
+    dep = None
+    if bruto != "":
+        try:
+            dep = int(bruto)
+        except ValueError:
+            raise Erro(400, "Departamento inválido.")
+        if not c.con.execute("SELECT 1 FROM departamentos WHERE id=? AND empresa_id=?", (dep, eid)).fetchone():
+            raise Erro(400, "Departamento inválido para esta empresa.")
+    bruto = (c.query.get("curso_id") or [""])[0]
+    try:
+        curso = int(bruto) if bruto != "" else None
+    except ValueError:
+        raise Erro(400, "Curso inválido.")
+    return eid, dep, curso
+
+
+@rota("GET", "/api/engajamento", ("master", "admin"))
+def h_engajamento(c):
+    """Relatório agregado de engajamento (sem nomes): quais lições e cursos são mais difíceis de assimilar."""
+    eid, dep, curso = _filtros_engajamento(c)
+    return engajamento.relatorio(c.con, eid, dep, curso)
+
+
+@rota("GET", "/api/engajamento/licoes.csv", ("master", "admin"))
+def h_engajamento_csv(c):
+    eid, dep, curso = _filtros_engajamento(c)
+    return Binario(engajamento.csv_licoes(engajamento.relatorio(c.con, eid, dep, curso)), "text/csv; charset=utf-8",
+                   {"Content-Disposition": "attachment; filename=engajamento_licoes.csv"})
 
 
 @rota("POST", "/api/cursos/sincronizar", ("master", "admin"))
@@ -899,9 +965,10 @@ def h_curso_excluir(c):
 @rota("POST", r"/api/cursos/(\d+)/certificado")
 def h_certificado_emitir(c):
     try:
-        return cursos.emitir_certificado(c.con, c.usuario, _eid(c), int(c.args[0]))
+        cert = cursos.emitir_certificado(c.con, c.usuario, _eid(c), int(c.args[0]))
     except ValueError as e:
         raise Erro(400, str(e))
+    return {**cert, "novas_conquistas": _novas_conquistas(c)}
 
 
 @rota("GET", "/api/certificados")

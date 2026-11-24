@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OutGPT Enterprise - Modelo de negócio</title>
+  <style>
+    :root{--bg:#f5f6fb;--card:#fff;--text:#151a2d;--muted:#667090;--line:#e6e9f2;--soft:#eef0fb;--primary:#6366f1;--primary-d:#4f46e5;--ok:#10b981;--warn:#f59e0b}
+    @media(prefers-color-scheme:dark){:root{--bg:#0b0e1a;--card:#141929;--text:#eaedf8;--muted:#8e97b5;--line:#242b44;--soft:#1b2140}}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);line-height:1.55}
+    .wrap{max-width:1040px;margin:0 auto;padding:28px 18px 56px}
+    header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:26px}
+    .logo{font-weight:800;font-size:1.4rem} .logo span{color:var(--primary)}
+    nav a{margin-left:14px;color:var(--primary);font-weight:600;text-decoration:none} nav a:hover{text-decoration:underline}
+    .eyebrow{color:var(--primary);font-weight:800;letter-spacing:.08em;text-transform:uppercase;font-size:.78rem;margin:0 0 6px}
+    h1{font-size:clamp(1.6rem,3.4vw,2.3rem);line-height:1.2;margin:0 0 12px}
+    h2{font-size:1.35rem;margin:38px 0 14px} h3{margin:0 0 6px;font-size:1.05rem}
+    .lead{font-size:1.08rem;color:var(--muted);max-width:760px;margin:0 0 22px}
+    .muted{color:var(--muted)} .small{font-size:.84rem}
+    .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:20px}
+    .kpi b{display:block;font-size:1.55rem;line-height:1.15} .kpi span{color:var(--muted);font-size:.9rem}
+    .kpi.dest{border-color:var(--primary);background:linear-gradient(180deg,rgba(99,102,241,.10),transparent 70%),var(--card)}
+    .hoje{margin:10px 0 0;padding:10px 12px;border-radius:12px;background:var(--soft);font-size:.9rem}
+    .hoje b{color:var(--primary)}
+    table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:.94rem}
+    th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top} th{background:var(--soft);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+    tr:last-child td{border-bottom:0} td:first-child{font-weight:600}
+    .preco td{font-weight:800;font-size:1.05rem;color:var(--primary)}
+    .tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:.72rem;font-weight:700;white-space:nowrap}
+    .tag.ok{background:rgba(16,185,129,.15);color:var(--ok)} .tag.rm{background:rgba(245,158,11,.16);color:var(--warn)}
+    .wrap-tab{overflow-x:auto}
+    ul.lista{margin:0;padding-left:20px} ul.lista li{margin:4px 0}
+    .duas{display:grid;gap:14px;grid-template-columns:1fr 1fr} @media(max-width:760px){.duas{grid-template-columns:1fr}}
+    footer{margin-top:40px;color:var(--muted);font-size:.84rem;border-top:1px solid var(--line);padding-top:16px}
+    a.btn{display:inline-block;background:var(--primary);color:#fff;font-weight:700;text-decoration:none;border-radius:12px;padding:10px 18px}
+    @media print{body{background:#fff;color:#000}nav{display:none}.card,table{break-inside:avoid;box-shadow:none}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">Out<span>GPT</span> Enterprise</div>
+    <nav><a href="/">Entrar no sistema</a><a href="pesquisa.html">Pesquisa com especialistas</a></nav>
+  </header>
+
+  <p class="eyebrow">Modelo de negócio</p>
+  <h1>Onboarding mais rápido, com IA que cita a fonte e protege os dados</h1>
+  <p class="lead">O OutGPT Enterprise transforma os procedimentos operacionais (SOPs) de cada empresa em um assistente que responde dúvidas com a fonte citada e em cursos com certificado. Usa RAG sobre a documentação oficial e mascara dados pessoais antes de qualquer consulta à IA.</p>
+
+  <div class="grid">
+    <div class="card kpi dest"><b>Implantação (setup)</b><span>R$ 1.500 a R$ 7.000 por cliente, conforme o volume de SOPs e de departamentos. Receita imediata na assinatura.</span></div>
+    <div class="card kpi dest"><b>Assinatura (SaaS)</b><span>De R$ 497 a R$ 3.497+ por mês, em 3 planos que crescem com o cliente. Receita recorrente previsível (MRR/ARR).</span></div>
+    <div class="card kpi"><b>Modelo híbrido</b><span>Setup cobre ingestão, higienização e calibração; a assinatura cobre manutenção, atualizações da IA, suporte e painéis.</span></div>
+  </div>
+
+  <h2>Três argumentos para o RH</h2>
+  <div class="grid">
+    <div class="card"><h3>1. Onboarding mais curto</h3>
+      <p class="muted">Menos interrupções de gestores e seniores para responder dúvidas repetitivas; o novato aprende no ritmo dele.</p>
+      <p class="hoje"><b>No produto hoje:</b> assistente que responde em segundos, cursos e perguntas de verificação gerados dos próprios SOPs, trilhas por departamento e relatório de engajamento que mostra onde as pessoas travam.</p></div>
+    <div class="card"><h3>2. Proteção de dados e LGPD</h3>
+      <p class="muted">Dados pessoais e confidenciais são interceptados e anonimizados antes de qualquer processamento pelo modelo de linguagem.</p>
+      <p class="hoje"><b>No produto hoje:</b> e-mail, CPF, CNPJ e telefone são mascarados antes da consulta à IA; cada empresa enxerga só o próprio conteúdo; acesso por perfil e por departamento; senhas protegidas com hash.</p></div>
+    <div class="card"><h3>3. Respostas ancoradas e auditáveis</h3>
+      <p class="muted">As respostas vêm da documentação oficial da empresa e indicam a fonte usada, o que permite conferir a informação.</p>
+      <p class="hoje"><b>No produto hoje:</b> cada resposta cita o documento e abre o trecho; sem base nos manuais o assistente recusa em vez de inventar; o painel de lacunas mostra o que falta documentar.</p></div>
+  </div>
+
+  <h2>Pacotes de implantação (setup fee)</h2>
+  <p class="muted">Cobrado uma vez, no início do contrato. O preço considera a quantidade de SOPs, a limpeza e divisão em trechos (chunking), a indexação no banco vetorial (ChromaDB) e as regras de anonimização.</p>
+  <div class="wrap-tab"><table>
+    <thead><tr><th>Pacote</th><th>Escopo de documentação</th><th>Estrutura organizacional</th><th>Investimento</th></tr></thead>
+    <tbody>
+      <tr><td>Básico</td><td>Até 50 SOPs</td><td>1 departamento</td><td>R$ 1.500 – R$ 2.500</td></tr>
+      <tr><td>Avançado</td><td>Até 200 SOPs</td><td>Múltiplos departamentos (ex.: TI, RH, Operações)</td><td>R$ 4.000 – R$ 7.000</td></tr>
+      <tr><td>Customizado</td><td>Acima de 200 SOPs</td><td>Multiempresas / matriz e filiais</td><td>Sob consulta</td></tr>
+    </tbody></table></div>
+
+  <h2>Planos de assinatura mensal (SaaS)</h2>
+  <div class="wrap-tab"><table>
+    <thead><tr><th>Recurso</th><th>Starter</th><th>Growth</th><th>Enterprise</th></tr></thead>
+    <tbody>
+      <tr><td>Público-alvo</td><td>Pequenas empresas e startups</td><td>Médias empresas</td><td>Grandes corporações</td></tr>
+      <tr><td>Colaboradores ativos</td><td>Até 30</td><td>Até 150</td><td>Ilimitados</td></tr>
+      <tr><td>Biblioteca de SOPs</td><td>Até 50 documentos</td><td>Até 200 documentos</td><td>Ilimitada</td></tr>
+      <tr><td>Departamentos</td><td>Unificado <span class="tag ok">✅ pronto</span></td><td>Múltiplos (RH, TI, Logística) <span class="tag ok">✅ pronto</span></td><td>Multiempresas e filiais <span class="tag ok">✅ pronto</span></td></tr>
+      <tr><td>LGPD</td><td>Mascaramento de dados pessoais <span class="tag ok">✅ pronto</span></td><td>Mascaramento de dados pessoais <span class="tag ok">✅ pronto</span></td><td>Regras de PII personalizadas <span class="tag rm">🛠 roadmap</span></td></tr>
+      <tr><td>Painéis e relatórios</td><td>Dashboard básico de uso <span class="tag ok">✅ pronto</span></td><td>Painel de lacunas e feedback <span class="tag ok">✅ pronto</span></td><td>Painel executivo customizado <span class="tag rm">🛠 roadmap</span></td></tr>
+      <tr><td>Integrações</td><td>Web app / portal <span class="tag ok">✅ pronto</span></td><td>Web app / portal <span class="tag ok">✅ pronto</span></td><td>Slack, Teams e APIs <span class="tag rm">🛠 roadmap</span></td></tr>
+      <tr><td>Atendimento e SLA</td><td>Suporte padrão (e-mail)</td><td>Suporte prioritário</td><td>SLA garantido + gerente de sucesso dedicado</td></tr>
+      <tr class="preco"><td>Valor sugerido</td><td>R$ 497 / mês</td><td>R$ 1.497 / mês</td><td>A partir de R$ 3.497 / mês</td></tr>
+    </tbody></table></div>
+  <p class="muted small">✅ já funciona hoje · 🛠 previsto no roadmap. Os limites de colaboradores e de SOPs são comerciais (definidos em contrato); o bloqueio automático por cota é uma evolução prevista.</p>
+
+  <h2>Conta de exemplo com os valores sugeridos</h2>
+  <div class="wrap-tab"><table>
+    <thead><tr><th>Cliente</th><th>Implantação (uma vez)</th><th>12 meses de assinatura</th><th>Receita no 1º ano</th></tr></thead>
+    <tbody>
+      <tr><td>Starter + pacote Básico</td><td>R$ 1.500 – R$ 2.500</td><td>R$ 5.964</td><td>R$ 7.464 – R$ 8.464</td></tr>
+      <tr><td>Growth + pacote Avançado</td><td>R$ 4.000 – R$ 7.000</td><td>R$ 17.964</td><td>R$ 21.964 – R$ 24.964</td></tr>
+      <tr><td>Enterprise + customizado</td><td>Sob consulta</td><td>A partir de R$ 41.964</td><td>A partir de R$ 41.964 + implantação</td></tr>
+    </tbody></table></div>
+  <p class="muted small">Exemplo ilustrativo: 10 clientes Growth geram R$ 14.970 de receita recorrente por mês (R$ 179.640 por ano), sem contar as implantações. É uma conta com os valores sugeridos, não uma projeção de vendas.</p>
+
+  <h2>O que já funciona e o que vem a seguir</h2>
+  <div class="duas">
+    <div class="card"><h3>✅ Pronto e testado</h3><ul class="lista">
+      <li>Assistente com IA e busca híbrida (vetorial + palavras-chave), respostas com fonte citada</li>
+      <li>Mascaramento de dados pessoais antes da consulta à IA</li>
+      <li>Várias empresas isoladas na mesma plataforma, com perfis de acesso</li>
+      <li>Departamentos: cada pessoa vê só a trilha e as normas da sua área</li>
+      <li>Cursos gerados dos SOPs, perguntas de verificação e certificado verificável</li>
+      <li>Conquistas, níveis e sequência de estudo para aumentar a retenção</li>
+      <li>Relatório de engajamento: quais materiais são mais difíceis de assimilar</li>
+      <li>Painel de lacunas e feedback das respostas</li></ul></div>
+    <div class="card"><h3>🛠 Próximos passos</h3><ul class="lista">
+      <li>Integrações com Slack e Microsoft Teams e API aberta</li>
+      <li>Regras de dados pessoais personalizadas por cliente</li>
+      <li>Controle automático de cotas por plano (colaboradores e SOPs)</li>
+      <li>Painel executivo customizado</li>
+      <li>Cobrança e gestão de assinaturas</li>
+      <li>Piloto com clientes reais para validar os preços sugeridos</li></ul></div>
+  </div>
+
+  <p style="margin-top:26px"><a class="btn" href="/">Ver o sistema funcionando</a></p>
+  <footer>Valores sugeridos, sujeitos à validação de mercado. Projeto da Fatec Cotia (Ciência de Dados, Processamento de Linguagem Natural). Equipe: Marcelo Henrique do Carmo Ramos e Victor Henrique Duarte Cardoso.</footer>
+</div>
+</body>
+</html>

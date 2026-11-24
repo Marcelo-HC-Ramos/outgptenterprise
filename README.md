@@ -16,13 +16,26 @@ Requisito: Python 3.10+ instalado ("Add python.exe to PATH"). O `INICIAR.bat` in
 **Ligar a IA:** em *Administração > Inteligência artificial* cole a chave da API (criada em console.anthropic.com). Ela é testada na hora e guardada só em `backend/.env`.
 Sem a chave o assistente funciona, mas mostra o trecho do manual em vez de uma resposta escrita pela IA.
 
-**Vai apresentar?** O roteiro de 5 a 8 minutos, com as perguntas que funcionam bem, está em **[DEMO.md](DEMO.md)**.
+**Vai apresentar?** O roteiro cronometrado de 5 minutos, com as perguntas que funcionam bem e as respostas para dúvidas de professores e investidores, está em **[DEMO.md](DEMO.md)**.
+Para o relatório de engajamento e as trilhas por departamento aparecerem cheios, `DEMO_CRIAR.bat` cria dados de demonstração e `DEMO_REMOVER.bat` apaga tudo depois.
+
+## Modelo de negócio
+Implantação (setup fee de R$ 1.500 a R$ 7.000) mais assinatura mensal em três planos (**Starter** R$ 497, **Growth** R$ 1.497 e **Enterprise** a partir de R$ 3.497), com a conta de exemplo e o que já está pronto
+ou ainda é roadmap, na página pública **`/negocio.html`** (também em *Sobre o projeto* dentro do sistema).
 
 ## Departamentos (acesso por função)
 Em *Usuários* o administrador cria **departamentos** (RH, TI, Financeiro...) e define o de cada pessoa. Na *Biblioteca*, cada conteúdo pode ser **de todos** ou
 restrito a alguns departamentos. Quem não pertence a eles não vê o conteúdo na biblioteca, nos cursos (cada pessoa recebe uma trilha própria, com progresso e
 certificado calculados só sobre o que lhe cabe) nem nas respostas do assistente. Administradores veem tudo. Sem restrição, o conteúdo é de todos, então nada muda
 para quem não usa departamentos.
+
+## Engajamento e conquistas
+- **Para quem estuda:** pontos, **níveis**, **sequência de dias** e **conquistas** (badges) desbloqueadas ao concluir lições, acertar perguntas, terminar cursos e usar o assistente;
+  o certificado de cada curso aparece **bloqueado** (com as lições que faltam) até ser **desbloqueado** ao concluir o curso. Menu *Conquistas*. Não há ranking entre pessoas.
+- **Para o RH (administração > Engajamento):** relatório por lição com o **tempo de estudo** (mediana), quem começou e concluiu, abandono, acerto na 1ª tentativa e tentativas,
+  resumidos em um **índice de dificuldade** (0 a 100) que aponta os materiais mais difíceis de assimilar. Filtros por departamento e curso, e exportação em CSV.
+- **Privacidade:** o relatório é agregado (nomes e e-mails não aparecem), o tempo conta só a atenção ativa até a lição ser concluída, administradores ficam fora da análise e
+  a pessoa é avisada na própria aula de que o tempo é medido.
 
 ## Colocar no seu domínio (Cloudflare)
 Com `PUBLICAR.bat` o sistema fica em **https://outgpt.ramosys.com.br** (HTTPS pelo Cloudflare Tunnel, sem abrir portas e sem cartão). Passo a passo, segurança, limites em **[CLOUDFLARE.md](CLOUDFLARE.md)**. Para ficar no ar **24 horas sem o seu computador**, num VPS com instalador pronto: **[SERVIDOR.md](SERVIDOR.md)**.

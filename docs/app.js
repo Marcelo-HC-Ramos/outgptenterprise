@@ -88,6 +88,43 @@ async function chatStream(pergunta, historico, aoTexto) {
   if (!final) throw new Error("A resposta foi interrompida. Tente novamente.");
   return final;
 }
+// ---------- Avisos (toast) e conquistas ----------
+function toast(html, ms = 6500) {
+  let box = $("#toasts");
+  if (!box) { box = document.createElement("div"); box.id = "toasts"; box.setAttribute("aria-live", "polite"); document.body.appendChild(box); }
+  const t = document.createElement("div"); t.className = "toast"; t.innerHTML = html; box.appendChild(t);
+  setTimeout(() => t.classList.add("sai"), ms - 400); setTimeout(() => t.remove(), ms);
+}
+function avisarConquistas(lista) {
+  (lista || []).forEach((c, i) => setTimeout(() => toast(`<span class="toast-ico">${esc(c.icone)}</span><div><strong>Nova conquista!</strong><br>${esc(c.nome)}<small class="muted"> · ${esc(c.descricao)}</small><br><a href="#/conquistas">Ver minhas conquistas</a></div>`), i * 900));
+}
+
+// Tempo de estudo por lição: conta só a atenção ativa (aba visível e com atividade nos últimos 60 s) e avisa o servidor a cada ~15 s.
+// O servidor limita o crédito ao tempo real e ignora administradores; os relatórios do RH mostram apenas dados agregados.
+const Tempo = {
+  alvo: null, acum: 0, ult: 0, timer: null,
+  seguir(curso, licao) {
+    if (this.alvo && this.alvo.c === curso && this.alvo.l === licao) return;
+    this.parar(true);
+    this.alvo = { c: curso, l: licao }; this.acum = 0; this.ult = Date.now();
+    this.timer = setInterval(() => this.tique(), 5000);
+  },
+  tique() {
+    if (document.visibilityState === "visible" && Date.now() - this.ult < 60000) this.acum += 5;
+    if (this.acum >= 15) this.enviar();
+  },
+  enviar() {
+    const a = this.alvo;
+    if (!a || this.acum < 1) return Promise.resolve();
+    const seg = Math.min(this.acum, 60); this.acum -= seg;
+    return fetch(`/api/cursos/${a.c}/licoes/${a.l}/tempo${qEmpresa()}`, { method: "POST", credentials: "same-origin", keepalive: true,
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ segundos: seg, empresa_id: estado.empresaId }) }).catch(() => {});
+  },
+  parar(enviar) { if (enviar) this.enviar(); clearInterval(this.timer); this.timer = null; this.alvo = null; this.acum = 0; },
+};
+["mousemove", "keydown", "scroll", "touchstart", "click"].forEach(ev => addEventListener(ev, () => { Tempo.ult = Date.now(); }, { passive: true, capture: true }));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") Tempo.enviar(); });
+
 // ---------- Tema ----------
 const temaBtn = $("#theme");
 function aplicarTema(t) {
@@ -168,7 +205,7 @@ $("#login-form").addEventListener("submit", async e => {
   } catch (err) { mostrarLogin(err.message); }
   btn.disabled = false;
 });
-$("#sair").onclick = async () => { try { await api("/api/logout", { method: "POST" }); } catch { /* já saiu */ } conversa = []; mostrarLogin(); };
+$("#sair").onclick = async () => { Tempo.parar(true); try { await api("/api/logout", { method: "POST" }); } catch { /* já saiu */ } conversa = []; mostrarLogin(); };
 $("#trocar-senha").onclick = () => janela("Alterar senha", `
   <label class="field">Senha atual<input type="password" id="s-atual" autocomplete="current-password" required></label>
   <label class="field">Nova senha (mín. 10 caracteres, com letras e números)<input type="password" id="s-nova" autocomplete="new-password" required></label>`,
@@ -221,10 +258,12 @@ window.addEventListener("hashchange", render);
 function render() {
   if (!estado.usuario) return;
   const [, rota = "inicio", a1, a2] = location.hash.split("/");
+  if (rota !== "curso") Tempo.parar(true);
   document.querySelectorAll("#nav a").forEach(a => a.classList.toggle("active", a.dataset.route === rota || (rota === "curso" && a.dataset.route === "cursos")));
   const telas = { inicio: telaInicio, cursos: telaCursos, curso: () => telaCurso(+a1, +a2 || null), chat: telaChat, historico: telaHistorico,
-    biblioteca: telaBiblioteca, usuarios: telaUsuarios, lacunas: telaLacunas, empresas: telaEmpresas, ia: telaIA, sobre: telaSobre };
-  const exige = { usuarios: ehAdmin(), lacunas: ehAdmin(), empresas: ehMaster(), ia: ehMaster() };
+    biblioteca: telaBiblioteca, usuarios: telaUsuarios, lacunas: telaLacunas, empresas: telaEmpresas, ia: telaIA, sobre: telaSobre,
+    conquistas: telaConquistas, engajamento: telaEngajamento };
+  const exige = { usuarios: ehAdmin(), lacunas: ehAdmin(), engajamento: ehAdmin(), empresas: ehMaster(), ia: ehMaster() };
   view.style.animation = "none"; view.offsetHeight; view.style.animation = "";
   ((rota in exige && !exige[rota]) ? telaInicio : (telas[rota] || telaInicio))();
   scrollTo(0, 0);
@@ -234,10 +273,13 @@ const cabecalho = (titulo, sub, acoes = "") => `<div class="page-head"><div><h1>
 
 // ---------- Início ----------
 const anel = pct => `<div class="anel" style="--p:${pct}"><span>${pct}%</span></div>`;
+const certChip = c => c.certificado ? `<span class="badge ok">🏆 Certificado emitido</span>`
+  : c.percentual === 100 ? `<span class="badge warn">🔓 Certificado disponível</span>`
+  : `<span class="badge soft" title="Conclua todas as lições para desbloquear o certificado">🔒 Certificado: faltam ${c.faltam} lição(ões)</span>`;
 const cartaoCurso = c => `<a class="curso" href="#/curso/${c.id}">
   <div class="curso-topo"><span class="curso-ico">${iconeDe(c.categoria)}</span><span class="curso-selos">${c.personalizado ? '<span class="badge soft">Personalizado</span>' : ""}${c.percentual === 100 ? '<span class="badge ok">Concluído</span>' : c.concluidas ? '<span class="badge">Em andamento</span>' : '<span class="badge soft">Novo</span>'}</span></div>
   <h3>${esc(c.titulo)}</h3><p class="muted">${c.licoes} lições · ~${c.minutos} min</p>
-  <div class="progress"><i style="width:${c.percentual}%"></i></div><small class="muted">${c.concluidas} de ${c.licoes} concluídas</small></a>`;
+  <div class="progress"><i style="width:${c.percentual}%"></i></div><small class="muted">${c.concluidas} de ${c.licoes} concluídas</small><div class="cert-chip">${certChip(c)}</div></a>`;
 
 async function telaInicio() {
   if (semEmpresa()) { view.innerHTML = cabecalho("Início", "Bem-vindo ao OutGPT Enterprise.") + avisoSemEmpresa(); ligarSeletorEmpresa(telaInicio); return; }
@@ -271,6 +313,7 @@ async function telaInicio() {
       </div>
       <div class="section-title"><h2>Seus cursos</h2><a href="#/cursos">Ver todos (${d.itens.length}) →</a></div>
       <div class="grid">${d.itens.slice().sort((a, b) => (b.concluidas > 0 && b.percentual < 100) - (a.concluidas > 0 && a.percentual < 100) || a.percentual - b.percentual).slice(0, 6).map(cartaoCurso).join("")}</div>`;
+    api("/api/conquistas").then(g => { const alvo = $("#meu-progresso .grid-2"); if (g.disponivel && alvo) alvo.insertAdjacentHTML("afterend", cartaoNivel(g)); }).catch(() => {});
   } catch (err) { erroTela(err); }
 }
 
@@ -325,6 +368,7 @@ async function telaCurso(id, licaoId) {
   const desenhar = () => {
     const l = c.licoes[atual], pct = Math.round(100 * feitas() / c.licoes.length), ultimo = atual === c.licoes.length - 1;
     const respondida = l.acertou !== null;
+    if (!ehAdmin() && !l.concluida) Tempo.seguir(c.id, l.conteudo_id); else Tempo.parar(true);       // mede o tempo até a lição ser concluída
     view.innerHTML = `<a href="#/cursos" class="muted voltar">← Cursos</a>
       <div class="curso-cab"><div><h1>${iconeDe(c.categoria)} ${esc(c.titulo)}</h1><p class="muted">${esc(c.descricao || "")}</p></div>${anel(pct)}</div>
       ${bannerQuiz()}
@@ -345,17 +389,20 @@ async function telaCurso(id, licaoId) {
             ${!l.quiz && !l.concluida ? `<button class="btn primary" id="concluir">Concluir lição${ultimo ? "" : " e continuar"}</button>` : ""}
             <button class="btn ${l.concluida || l.quiz ? "primary" : ""}" id="prox" ${ultimo ? "disabled" : ""}>Próxima →</button>
           </div>
+          ${ehAdmin() ? "" : `<p class="muted tempo-aviso">⏱ O tempo que você passa em cada lição é medido e aparece nos relatórios do RH só de forma agregada, sem nomes, para melhorar os materiais.</p>`}
         </div></div>`;
     if ($("#gerar-quiz")) $("#gerar-quiz").onclick = gerarQuiz;
-    if ($("#emitir-cert")) $("#emitir-cert").onclick = async () => { try { mostrarCertificado(await api(`/api/cursos/${c.id}/certificado${qEmpresa()}`, { method: "POST" })); } catch (e) { janela("Não foi possível emitir", `<p>${esc(e.message)}</p>`); } };
+    if ($("#emitir-cert")) $("#emitir-cert").onclick = async () => { try { const cert = await api(`/api/cursos/${c.id}/certificado${qEmpresa()}`, { method: "POST" }); mostrarCertificado(cert); avisarConquistas(cert.novas_conquistas); } catch (e) { janela("Não foi possível emitir", `<p>${esc(e.message)}</p>`); } };
     view.querySelectorAll("[data-i]").forEach(b => b.onclick = () => { atual = +b.dataset.i; desenhar(); scrollTo(0, 0); });
     $("#ant").onclick = () => { atual--; desenhar(); scrollTo(0, 0); };
     $("#prox").onclick = () => { atual++; desenhar(); scrollTo(0, 0); };
-    if ($("#concluir")) $("#concluir").onclick = async () => { try { await Dados.concluir(c.id, l.conteudo_id); l.concluida = true; if (!ultimo) atual++; desenhar(); scrollTo(0, 0); } catch (err) { erroTela(err); } };
+    if ($("#concluir")) $("#concluir").onclick = async () => { try { await Tempo.enviar(); const r = await Dados.concluir(c.id, l.conteudo_id); avisarConquistas(r.novas_conquistas); l.concluida = true; if (!ultimo) atual++; desenhar(); scrollTo(0, 0); } catch (err) { erroTela(err); } };
     view.querySelectorAll("[data-o]").forEach(b => b.onclick = async () => {
       view.querySelectorAll("[data-o]").forEach(x => x.disabled = true);
       try {
+        await Tempo.enviar();                                    // o tempo até aqui conta; depois de concluída a lição, deixa de contar
         const r = await Dados.responder(c.id, l.conteudo_id, +b.dataset.o);
+        avisarConquistas(r.novas_conquistas);
         l.concluida = true; l.acertou = r.correta;
         view.querySelectorAll("[data-o]").forEach((x, i) => { if (i === r.indice_correto) x.classList.add("certa"); else if (x === b) x.classList.add("errada"); });
         $("#retorno-quiz").innerHTML = r.correta ? `<p class="feedback ok">✅ Correto!</p>` : `<p class="feedback bad">Não foi dessa vez. A resposta certa é a destacada em verde.</p>`;
@@ -474,6 +521,7 @@ async function telaChat() {
       const r = await Dados.chat(texto, conversa, aoTexto);
       finalizado = true;
       w.className = "msg bot";
+      avisarConquistas(r.novas_conquistas);
       const selo = r.gerado_por_ia ? `<span class="selo">🤖 Resposta gerada por IA a partir dos conteúdos</span>` : r.encontrado ? `<span class="selo">🔎 Trecho do manual</span>` : "";
       w.innerHTML = md(r.resposta) + (r.fontes.length ? `<div class="cites">${mostrarFontes(r.fontes)}</div>` : "") + (selo ? `<div class="cites">${selo}</div>` : "")
         + (r.aviso ? `<div class="nota">ℹ️ ${esc(r.aviso)}</div>` : "")
@@ -752,6 +800,93 @@ async function telaUsuarios() {
   if (acaoPendente === "usuario") { acaoPendente = null; abrirNovo(); }
 }
 
+// ---------- Conquistas (gamificação) ----------
+const cartaoNivel = g => `<a class="card nivel-card" href="#/conquistas"><div class="nivel-ico">🏅</div>
+  <div class="nivel-corpo"><div class="nivel-topo"><strong>Nível ${esc(g.nivel.nome)}</strong><span class="muted">${g.pontos} pontos</span></div>
+    <div class="progress"><i style="width:${g.progresso_nivel}%"></i></div>
+    <small class="muted">${g.proximo_nivel ? `Faltam ${g.proximo_nivel.faltam} pontos para ${esc(g.proximo_nivel.nome)}` : "Você chegou ao nível máximo"} · 🔥 ${g.sequencia_atual} dia(s) seguidos · ${g.desbloqueadas} de ${g.total_conquistas} conquistas</small></div></a>`;
+const dataBr = s => new Date(String(s).replace(" ", "T")).toLocaleDateString("pt-BR");
+
+async function telaConquistas() {
+  view.innerHTML = cabecalho("Conquistas", "Seu nível, suas conquistas e seus certificados.") + `<div class="card">Carregando...</div>`;
+  ligarSeletorEmpresa(telaConquistas);
+  let g; try { g = await api("/api/conquistas"); } catch (err) { return erroTela(err); }
+  if (!g.disponivel) { view.innerHTML = cabecalho("Conquistas", "") + `<div class="card vazio"><div class="vazio-ico">🏅</div><h2>Conquistas são de quem faz os cursos</h2><p class="muted">Entre com um usuário da empresa (funcionário ou colaborador) para ver níveis, conquistas e certificados.</p></div>`; return; }
+  let cd = { itens: [] }, certs = { itens: [] };
+  try { [cd, certs] = await Promise.all([Dados.cursos(), api("/api/certificados")]); } catch { /* segue sem a seção de certificados */ }
+  const emitidos = cd.itens.filter(c => c.certificado), disponiveis = cd.itens.filter(c => !c.certificado && c.percentual === 100), bloqueados = cd.itens.filter(c => c.percentual < 100);
+  view.innerHTML = cabecalho("Conquistas", `${g.desbloqueadas} de ${g.total_conquistas} conquistas desbloqueadas`) + `
+    ${cartaoNivel(g).replace('<a class="card nivel-card" href="#/conquistas">', '<div class="card nivel-card">').replace(/<\/a>$/, "</div>")}
+    <div class="painel-nums nums-conq"><div><b>🔥 ${g.sequencia_atual}</b><small>dia(s) seguidos (melhor: ${g.melhor_sequencia})</small></div><div><b>${g.licoes}</b><small>lições concluídas</small></div>
+      <div><b>${g.cursos_concluidos}/${g.total_cursos}</b><small>cursos concluídos</small></div><div><b>${g.respondidas ? `${g.acertos}/${g.respondidas}` : "—"}</b><small>acertos de primeira</small></div><div><b>${g.certificados}</b><small>certificado(s)</small></div></div>
+    <div class="section-title"><h2>Conquistas</h2></div>
+    <div class="conquistas">${g.conquistas.map(c => `<div class="conquista ${c.conquistada_em ? "on" : "off"}"><div class="conquista-ico">${esc(c.icone)}</div><strong>${esc(c.nome)}</strong><small class="muted">${esc(c.descricao)}</small>
+      ${c.conquistada_em ? `<span class="badge ok">Conquistada em ${dataBr(c.conquistada_em)}</span>` : `<div class="progress"><i style="width:${Math.round(100 * c.atual / c.meta)}%"></i></div><small class="muted">${c.atual} de ${c.meta}</small>`}</div>`).join("")}</div>
+    <div class="section-title"><h2>Certificados</h2></div>
+    <div class="card" id="certs">${cd.itens.length ? `<ul class="lista-cert">
+      ${emitidos.map(c => `<li><div><strong>🏆 ${esc(c.titulo)}</strong><br><small class="muted">Emitido · código ${esc(c.certificado)}</small></div><button class="btn mini" data-abrir="${esc(c.certificado)}">Abrir</button></li>`).join("")}
+      ${disponiveis.map(c => `<li><div><strong>🔓 ${esc(c.titulo)}</strong><br><small class="muted">Curso concluído: seu certificado está liberado</small></div><button class="btn mini primary" data-emitir="${c.id}">Emitir agora</button></li>`).join("")}
+      ${bloqueados.map(c => `<li class="trancado"><div><strong>🔒 ${esc(c.titulo)}</strong><br><small class="muted">Faltam ${c.faltam} lição(ões) para desbloquear</small><div class="progress"><i style="width:${c.percentual}%"></i></div></div><a class="btn mini" href="#/curso/${c.id}">Continuar</a></li>`).join("")}</ul>`
+      : `<p class="muted">Ainda não há cursos. Quando houver, o certificado de cada um será desbloqueado ao concluir todas as lições.</p>`}</div>`;
+  ligarSeletorEmpresa(telaConquistas);
+  view.querySelectorAll("[data-abrir]").forEach(b => b.onclick = () => mostrarCertificado(certs.itens.find(c => c.codigo === b.dataset.abrir)));
+  view.querySelectorAll("[data-emitir]").forEach(b => b.onclick = async () => {
+    try { const cert = await api(`/api/cursos/${b.dataset.emitir}/certificado${qEmpresa()}`, { method: "POST" }); mostrarCertificado(cert); avisarConquistas(cert.novas_conquistas); telaConquistas(); }
+    catch (e) { janela("Não foi possível emitir", `<p>${esc(e.message)}</p>`); }
+  });
+}
+
+// ---------- Engajamento (RH): quais materiais são mais difíceis de assimilar ----------
+let engFiltro = { dep: "", curso: "" };
+const fmtTempo = s => s == null ? "—" : s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1).replace(".", ",")} h`;
+const fmtPct = v => v == null ? "—" : `${v}%`;
+const NIVEIS_DIF = { dificil: "Difícil", atencao: "Atenção", tranquila: "Tranquila" };
+const tagDif = (l, min) => l.nivel === "amostra" ? `<span class="dif amostra" title="Menos de ${min} pessoas começaram esta lição: poucos dados para classificar">amostra pequena</span>` : `<span class="dif ${l.nivel}">${NIVEIS_DIF[l.nivel]} · ${l.dificuldade}</span>`;
+const motivosDif = l => [
+  l.respondidas && l.acerto_1a_pct !== null && l.acerto_1a_pct < 70 ? `${100 - l.acerto_1a_pct}% erraram a pergunta de primeira` : null,
+  l.ritmo !== null && l.ritmo >= 1.5 ? `tempo ${String(l.ritmo.toFixed(1)).replace(".", ",")}× o esperado` : null,
+  l.abandono_pct ? `${l.abandono_pct}% começaram e não concluíram` : null,
+  l.tentativas_media && l.tentativas_media >= 1.5 ? `${String(l.tentativas_media).replace(".", ",")} tentativas em média` : null].filter(Boolean);
+
+async function telaEngajamento() {
+  if (semEmpresa()) { view.innerHTML = cabecalho("Engajamento", "") + avisoSemEmpresa(); ligarSeletorEmpresa(telaEngajamento); return; }
+  view.innerHTML = cabecalho("Engajamento", "Quais materiais são mais difíceis de assimilar.") + `<div class="card">Carregando...</div>`;
+  ligarSeletorEmpresa(telaEngajamento);
+  const qs = new URLSearchParams();
+  if (ehMaster() && estado.empresaId) qs.set("empresa_id", estado.empresaId);
+  if (engFiltro.dep) qs.set("departamento_id", engFiltro.dep);
+  if (engFiltro.curso) qs.set("curso_id", engFiltro.curso);
+  const q = qs.toString() ? "?" + qs : "";
+  let rel, deps = [], cursosLista = [];
+  try { [rel, deps, cursosLista] = await Promise.all([api("/api/engajamento" + q), Dados.departamentos().then(d => d.itens).catch(() => []), Dados.cursos().then(d => d.itens).catch(() => [])]); }
+  catch (err) { return erroTela(err); }
+  const r = rel.resumo, min = r.min_amostra;
+  const atencao = rel.licoes.filter(l => l.nivel === "dificil" || l.nivel === "atencao").slice(0, 6);
+  view.innerHTML = cabecalho("Engajamento", "Quais materiais são mais difíceis de assimilar.", `<a class="btn" href="/api/engajamento/licoes.csv${q}" download>⬇ Exportar CSV</a>`) + `
+    <div class="card"><div class="row2"><label class="field">Departamento<select id="eg-dep"><option value="">Todos</option>${deps.map(d => `<option value="${d.id}" ${String(d.id) === engFiltro.dep ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></label>
+      <label class="field">Curso<select id="eg-curso"><option value="">Todos</option>${cursosLista.map(c => `<option value="${c.id}" ${String(c.id) === engFiltro.curso ? "selected" : ""}>${esc(c.titulo)}</option>`).join("")}</select></label></div>
+      <div class="painel-nums"><div><b>${r.pessoas}</b><small>pessoas na análise</small></div><div><b>${r.ativas}</b><small>ativas nos últimos ${r.janela_ativos_dias} dias</small></div><div><b>${r.licoes_concluidas}</b><small>lições concluídas</small></div>
+        <div><b>${fmtTempo(r.tempo_total_s)}</b><small>tempo de estudo</small></div><div><b>${fmtPct(r.conclusao_media_pct)}</b><small>conclusão média</small></div><div><b>${fmtPct(r.acerto_1a_pct)}</b><small>acerto de 1ª tentativa</small></div></div></div>
+    <div class="section-title"><h2>Materiais que merecem atenção</h2></div>
+    ${atencao.length ? `<div class="grid">${atencao.map(l => `<div class="card atencao"><div class="atencao-topo">${tagDif(l, min)}<small class="muted">${esc(l.curso)}</small></div><h3>${esc(l.titulo)}</h3>
+        <ul class="motivos">${motivosDif(l).map(m => `<li>${m}</li>`).join("") || "<li>Sinais moderados de dificuldade.</li>"}</ul><small class="muted">${l.iniciaram} de ${l.elegiveis} pessoas começaram · ${l.concluiram} concluíram</small></div>`).join("")}</div>`
+      : `<div class="card vazio"><div class="vazio-ico">✅</div><h2>Nenhum material com sinais de dificuldade</h2><p class="muted">Ou ainda há poucos dados: cada lição precisa de pelo menos ${min} pessoas que a tenham começado para ser classificada.</p></div>`}
+    <div class="section-title"><h2>Todas as lições</h2><small class="muted">ordenadas da mais difícil para a mais tranquila</small></div>
+    <div class="card table-wrap"><table><thead><tr><th>Lição</th><th>Começaram</th><th>Concluíram</th><th>Abandono</th><th>Tempo (mediana)</th><th>Acerto 1ª</th><th>Tentativas</th><th>Dificuldade</th></tr></thead><tbody>
+      ${rel.licoes.length ? rel.licoes.map(l => `<tr><td><strong>${esc(l.titulo)}</strong><br><small class="muted">${esc(l.curso)} · ${esc(l.codigo)}</small></td><td>${l.iniciaram}/${l.elegiveis}</td><td>${l.concluiram}</td><td>${fmtPct(l.abandono_pct)}</td>
+        <td>${fmtTempo(l.tempo_mediano_s)}<br><small class="muted">esperado ${fmtTempo(l.esperado_s)}</small></td><td>${fmtPct(l.acerto_1a_pct)}</td><td>${l.tentativas_media ?? "—"}</td><td>${tagDif(l, min)}</td></tr>`).join("") : `<tr><td colspan="8" class="muted">Nenhuma lição para este filtro.</td></tr>`}</tbody></table></div>
+    <div class="grid-2 g2-eng">
+      <div class="card table-wrap"><h3>Por curso</h3><table><thead><tr><th>Curso</th><th>Começaram</th><th>Concluíram</th><th>Tempo</th></tr></thead><tbody>${rel.cursos.map(c => `<tr><td>${esc(c.titulo)}</td><td>${c.iniciaram}/${c.elegiveis}</td><td>${c.concluiram} (${fmtPct(c.conclusao_pct)})</td><td>${fmtTempo(c.tempo_total_s)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">—</td></tr>`}</tbody></table></div>
+      <div class="card table-wrap"><h3>Por departamento</h3><table><thead><tr><th>Departamento</th><th>Pessoas</th><th>Ativas</th><th>Conclusão média</th></tr></thead><tbody>${rel.departamentos.map(d => `<tr><td>${esc(d.nome)}</td><td>${d.pessoas}</td><td>${d.ativas}</td><td>${fmtPct(d.conclusao_media_pct)}</td></tr>`).join("") || `<tr><td colspan="4" class="muted">—</td></tr>`}</tbody></table></div>
+    </div>
+    <details class="card metodo"><summary>Como o índice de dificuldade é calculado</summary>
+      <p class="muted">É uma nota de 0 a 100 que combina três sinais de cada lição: <strong>erro na 1ª tentativa</strong> da pergunta de verificação (peso 5), <strong>tempo acima do esperado</strong> (peso 3; o esperado vem do tamanho do texto, e 2× o esperado conta como máximo) e <strong>abandono</strong>, quem começou e não concluiu (peso 2). Só entram os sinais que existem para a lição. <strong>Difícil</strong> a partir de 60, <strong>Atenção</strong> a partir de 35. Com menos de ${min} pessoas a lição aparece como "amostra pequena" e não é classificada.</p>
+      <p class="muted"><strong>Privacidade:</strong> os números são agregados por lição, curso e departamento; nomes e e-mails não aparecem. O tempo conta só a atenção ativa (aba aberta e com uso), até a lição ser concluída. Administradores não entram na análise.</p></details>`;
+  ligarSeletorEmpresa(telaEngajamento);
+  $("#eg-dep").onchange = e => { engFiltro.dep = e.target.value; telaEngajamento(); };
+  $("#eg-curso").onchange = e => { engFiltro.curso = e.target.value; telaEngajamento(); };
+}
+
 // ---------- Empresas (somente master) ----------
 async function telaEmpresas() {
   view.innerHTML = cabecalho("Empresas", "Clientes da plataforma. Cada empresa tem seus próprios usuários, conteúdos e cursos, isolados das demais.", `<button class="btn primary" id="novo">+ Nova empresa</button>`).replace(seletorEmpresa(), "") + `<div class="card" id="emp">Carregando...</div>`;
@@ -803,6 +938,9 @@ function telaSobre() {
     <div class="card"><h2>Equipe</h2><ul><li>Marcelo Henrique do Carmo Ramos</li><li>Victor Henrique Duarte Cardoso</li></ul></div>
     <div class="card"><h2>Tecnologia</h2>
       <p><span class="badge">Python</span> <span class="badge">Claude (LLM)</span> <span class="badge">RAG híbrido</span> <span class="badge">ChromaDB</span> <span class="badge">SQLite</span> <span class="badge">HTML/CSS/JS</span></p></div>
+    <div class="card"><h2>Modelo de negócio</h2>
+      <p class="muted">Implantação (setup fee) mais assinatura mensal em três planos: Starter, Growth e Enterprise.</p>
+      <a class="btn" href="negocio.html">Ver planos e modelo de negócio</a></div>
     <div class="card"><h2>Pesquisa com especialistas</h2>
       <p class="muted">Ajude o projeto: responda à pesquisa sobre a importância da ferramenta para empresas e instituições de ensino.</p>
       <a class="btn" href="pesquisa.html">Abrir a pesquisa</a></div>`;

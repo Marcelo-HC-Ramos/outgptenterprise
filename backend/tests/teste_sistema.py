@@ -508,6 +508,230 @@ chk("CSV com departamento de outra empresa = 400", gadm.req("POST", "/api/conteu
 chk("excluir conteúdo restrito remove o vínculo (departamento volta a poder ser apagado)", gadm.req("DELETE", f"/api/conteudos/{id_ti}")[0] == 200
     and {x["nome"]: x["conteudos"] for x in gadm.req("GET", "/api/departamentos")[1]["itens"]}["TI e Dados"] == 3)  # G_AMBOS, G_PUBTI e o arquivo ainda o usam
 chk("a Acme não foi afetada (conteúdos e cursos intactos)", len(func.req("GET", "/api/cursos")[1]["itens"]) >= 12 and len(func.req("GET", "/api/conteudos")[1]["itens"]) >= 100)
+# ========== ENGAJAMENTO E GAMIFICAÇÃO: tempo por lição, conquistas e relatório do RH ==========
+import csv as _csv
+from datetime import date as _date, datetime as _dt, timedelta as _td
+import engajamento as _eng, gamificacao as _gam
+
+# --- funções puras ---
+chk("índice de dificuldade: sem nenhum sinal = None", _eng.indice_dificuldade(None, None, None) is None)
+chk("índice de dificuldade: tudo no máximo = 100, tudo bom = 0", _eng.indice_dificuldade(1, 3, 1) == 100 and _eng.indice_dificuldade(0, 0.5, 0) == 0)
+chk("índice de dificuldade: só um sinal é renormalizado (erro 50% = 50)", _eng.indice_dificuldade(0.5, None, None) == 50 and _eng.indice_dificuldade(None, 1.5, None) == 50)
+chk("índice de dificuldade: pesos 0,5 / 0,3 / 0,2", _eng.indice_dificuldade(1, 2, 0) == 80 and _eng.indice_dificuldade(0, 2, 1) == 50)
+chk("classificação: limiares e amostra pequena", _eng.classificar(60, 5) == "dificil" and _eng.classificar(59, 5) == "atencao" and _eng.classificar(35, 5) == "atencao"
+    and _eng.classificar(34, 5) == "tranquila" and _eng.classificar(90, 2) == "amostra" and _eng.classificar(None, 9) == "amostra")
+hoje_d = _date(2026, 11, 22)
+chk("sequência: 3 dias seguidos até hoje", _gam.sequencias(["2026-11-20", "2026-11-21", "2026-11-22"], hoje_d) == (3, 3))
+chk("sequência: terminou ontem ainda vale; anteontem já quebrou", _gam.sequencias(["2026-11-20", "2026-11-21"], hoje_d) == (2, 2) and _gam.sequencias(["2026-11-19", "2026-11-20"], hoje_d) == (0, 2))
+chk("sequência: lacuna reinicia a contagem e repetidos no mesmo dia contam uma vez", _gam.sequencias(["2026-11-10", "2026-11-11", "2026-11-13", "2026-11-13"], _date(2026, 11, 13)) == (1, 2) and _gam.sequencias([], hoje_d) == (0, 0))
+chk("níveis por pontos", _gam.nivel_de(0)[0]["nome"] == "Iniciante" and _gam.nivel_de(99)[0]["nome"] == "Iniciante" and _gam.nivel_de(100)[0]["nome"] == "Aprendiz"
+    and _gam.nivel_de(100)[1] == {"nome": "Praticante", "pontos": 300, "faltam": 200} and _gam.nivel_de(5000)[0]["nome"] == "Mestre" and _gam.nivel_de(5000)[1] is None)
+
+# --- empresa Delta: curso de ética e compliance com 5 lições + curso de segurança com 3 ---
+delta = m.req("POST", "/api/empresas", {"nome": "Delta"})[1]["id"]
+m.req("POST", "/api/usuarios", {"empresa_id": delta, "nome": "Dora Admin", "email": "dora@delta.com", "senha": "senhaforte123", "tipo": "admin"})
+for i in range(1, 5):
+    m.req("POST", "/api/usuarios", {"empresa_id": delta, "nome": f"Pessoa {i}", "email": f"p{i}@delta.com", "senha": "senhaforte123", "tipo": "funcionario"})
+dadm = Cli(); dadm.req("POST", "/api/login", {"email": "dora@delta.com", "senha": "senhaforte123"})
+P = []
+for i in range(1, 5):
+    cl = Cli(); cl.req("POST", "/api/login", {"email": f"p{i}@delta.com", "senha": "senhaforte123"}); P.append(cl)
+ETICA = [("E1", "Conflito de interesses", "Declare ao gestor qualquer relação pessoal com fornecedores antes de participar da decisão de compra.", "Quando declarar um conflito de interesses?", "Antes de participar da decisão."),
+         ("E2", "Presentes e brindes", "Presentes de fornecedores acima de R$ 100,00 devem ser recusados e registrados no canal de compliance.", "Qual o limite para aceitar presentes?", "Até R$ 100,00."),
+         ("E3", "Canal de denúncia", "O canal de denúncia é anônimo, funciona 24 horas e nenhuma retaliação é tolerada contra quem denuncia.", "O canal de denúncia é anônimo?", "Sim, e funciona 24 horas."),
+         ("E4", "Assédio no trabalho", "Qualquer forma de assédio moral ou sexual deve ser reportada ao RH e é motivo de desligamento por justa causa.", "A quem reportar assédio?", "Ao RH."),
+         ("E5", "Antissuborno", "É proibido oferecer vantagem indevida a agentes públicos; toda negociação com órgãos públicos tem acompanhamento do jurídico.", "Quem acompanha negociações com órgãos públicos?", "O jurídico.")]
+SEGUR = [("S1", "=1+1 Senhas fortes", "Use senhas com mais de 12 caracteres e um gerenciador de senhas aprovado pela empresa.", "Quantos caracteres tem uma senha forte?", "Mais de 12."),
+         ("S2", "Phishing", "Desconfie de mensagens com urgência exagerada e nunca informe a senha por e-mail ou telefone.", "Posso informar a senha por e-mail?", "Nunca."),
+         ("S3", "Dispositivos pessoais", "Dispositivos pessoais só acessam sistemas da empresa pela VPN e com a verificação em duas etapas ativa.", "Como acessar sistemas pelo celular pessoal?", "Pela VPN com 2FA.")]
+for cat, lista in (("Ética e compliance", ETICA), ("Segurança", SEGUR)):
+    for cod, tit, texto, perg, resp in lista:
+        dadm.req("POST", "/api/conteudos", {"codigo": cod, "titulo": tit, "categoria": cat, "texto": texto, "pergunta_exemplo": perg, "resposta_exemplo": resp, "visibilidade": "internos"})
+cid = {i["codigo"]: i["id"] for i in dadm.req("GET", "/api/conteudos")[1]["itens"]}
+cur = {c["titulo"]: c["id"] for c in dadm.req("GET", "/api/cursos")[1]["itens"]}
+uid = {u["email"]: u["id"] for u in dadm.req("GET", "/api/usuarios")[1]["itens"]}
+chk("Delta: dois cursos criados (ética e segurança)", set(cur) == {"Ética e compliance", "Segurança"}, list(cur))
+
+# --- tempo de estudo ---
+agora_s = lambda: _dt.now().strftime("%Y-%m-%d %H:%M:%S")
+tempo_db = lambda email, cod: (lambda r: r[0] if r else None)(db.conectar().execute("SELECT segundos FROM licao_tempo WHERE usuario_id=? AND conteudo_id=?", (uid[email], cid[cod])).fetchone())
+u_t = f"/api/cursos/{cur['Segurança']}/licoes/{cid['S2']}/tempo"
+s, d = P[0].req("POST", u_t, {"segundos": 20}); chk("tempo: o primeiro aviso conta os segundos informados", s == 200 and d["contado"] == 20 and tempo_db("p1@delta.com", "S2") == 20, d)
+s, d = P[0].req("POST", u_t, {"segundos": 55}); chk("tempo: avisos seguidos não passam do tempo real decorrido (sem inflar)", s == 200 and d["contado"] <= 4 and tempo_db("p1@delta.com", "S2") <= 24, (d, tempo_db("p1@delta.com", "S2")))
+s, d = P[1].req("POST", u_t, {"segundos": 600}); chk("tempo: o primeiro aviso é limitado a 30 s mesmo pedindo 600", s == 200 and d["contado"] == 30 and tempo_db("p2@delta.com", "S2") == 30, d)
+chk("tempo: valores inválidos são recusados (negativo, texto, booleano, decimal, acima de 600)", [P[0].req("POST", u_t, {"segundos": v})[0] for v in (-1, "10", True, 1.5, 601, None)] == [400] * 6)
+chk("tempo: lição que não existe ou de outro curso = 404", P[0].req("POST", f"/api/cursos/{cur['Segurança']}/licoes/999999/tempo", {"segundos": 5})[0] == 404 and P[0].req("POST", f"/api/cursos/999999/licoes/{cid['S2']}/tempo", {"segundos": 5})[0] == 404)
+chk("tempo: exige login", Cli().req("POST", u_t, {"segundos": 5})[0] == 401)
+s, d = dadm.req("POST", u_t, {"segundos": 20}); chk("tempo: administrador não entra na métrica", s == 200 and d["contado"] == 0 and tempo_db("dora@delta.com", "S2") is None, d)
+chk("tempo: lição de outra empresa não aceita tempo", gabi.req("POST", f"/api/cursos/{cur['Segurança']}/licoes/{cid['S2']}/tempo", {"segundos": 5})[0] == 404)
+P[2].req("POST", f"/api/cursos/{cur['Segurança']}/licoes/{cid['S2']}/concluir", {})
+s, d = P[2].req("POST", u_t, {"segundos": 20}); chk("tempo: depois de concluída a lição, o tempo para de contar", s == 200 and d["contado"] == 0 and tempo_db("p3@delta.com", "S2") is None, d)
+with db.conectar() as con:
+    con.execute("UPDATE licao_tempo SET segundos=14390, ultima_em=datetime('now','localtime','-10 minutes') WHERE usuario_id=? AND conteudo_id=?", (uid["p1@delta.com"], cid["S2"])); con.commit()
+P[0].req("POST", u_t, {"segundos": 60})
+chk("tempo: teto de 4 horas por pessoa e lição", tempo_db("p1@delta.com", "S2") == 14400, tempo_db("p1@delta.com", "S2"))
+
+# --- tentativas nas perguntas de verificação ---
+det = P[3].req("GET", f"/api/cursos/{cur['Segurança']}")[1]
+lic_s1 = next(l for l in det["licoes"] if l["codigo"] == "S1")
+for opc in (0, 1, 2):
+    P[3].req("POST", f"/api/cursos/{cur['Segurança']}/licoes/{lic_s1['conteudo_id']}/responder", {"opcao": opc})
+r_db = db.conectar().execute("SELECT acertou, tentativas FROM progresso_licoes WHERE usuario_id=? AND conteudo_id=?", (uid["p4@delta.com"], cid["S1"])).fetchone()
+chk("tentativas: cada resposta soma 1 e só a 1ª define o acerto", r_db["tentativas"] == 3 and r_db["acertou"] in (0, 1), dict(r_db))
+
+# --- relatório do RH: números exatos (dados semeados direto no banco) ---
+with db.conectar() as con:
+    con.execute("DELETE FROM progresso_licoes WHERE usuario_id IN (%s)" % ",".join(str(uid[f"p{i}@delta.com"]) for i in range(1, 5)))
+    con.execute("DELETE FROM licao_tempo WHERE usuario_id IN (%s)" % ",".join(str(uid[f"p{i}@delta.com"]) for i in range(1, 5)))
+    def semear_prog(i, cod, acertou, tent, curso="Ética e compliance"):
+        con.execute("INSERT INTO progresso_licoes (usuario_id,curso_id,conteudo_id,concluida_em,acertou,tentativas) VALUES (?,?,?,?,?,?)", (uid[f"p{i}@delta.com"], cur[curso], cid[cod], agora_s(), acertou, tent))
+    def semear_tempo(i, cod, seg, curso="Ética e compliance"):
+        con.execute("INSERT INTO licao_tempo (usuario_id,curso_id,conteudo_id,segundos,primeira_em,ultima_em) VALUES (?,?,?,?,?,?)", (uid[f"p{i}@delta.com"], cur[curso], cid[cod], seg, agora_s(), agora_s()))
+    # E1 (difícil): 4 começaram, 3 concluíram, 2 erraram de primeira, tempo ~6,5x o esperado, 1 abandonou
+    semear_prog(1, "E1", 0, 2); semear_prog(2, "E1", 0, 3); semear_prog(3, "E1", 1, 1)
+    for i, s_ in zip((1, 2, 3, 4), (420, 380, 400, 300)): semear_tempo(i, "E1", s_)
+    # E2 (tranquila): todos concluem, acertam de primeira e leem no tempo esperado
+    for i, s_ in zip((1, 2, 3, 4), (40, 50, 60, 70)): semear_prog(i, "E2", 1, 1); semear_tempo(i, "E2", s_)
+    # E3: só 2 começaram (amostra pequena)
+    semear_tempo(1, "E3", 100); semear_tempo(2, "E3", 90)
+    con.commit()
+rel = dadm.req("GET", "/api/engajamento")[1]
+L = {l["codigo"]: l for l in rel["licoes"]}
+chk("relatório: E1 conta quem começou, concluiu e abandonou", (L["E1"]["elegiveis"], L["E1"]["iniciaram"], L["E1"]["concluiram"], L["E1"]["abandono_pct"]) == (4, 4, 3, 25), L["E1"])
+chk("relatório: E1 acerto de 1ª tentativa, tentativas médias e tempo mediano", (L["E1"]["respondidas"], L["E1"]["acerto_1a_pct"], L["E1"]["tentativas_media"], L["E1"]["tempo_mediano_s"]) == (3, 33, 2.0, 390), L["E1"])
+chk("relatório: E1 tem ritmo bem acima do esperado e índice 68 (difícil)", L["E1"]["esperado_s"] == 60 and L["E1"]["ritmo"] == 6.5 and L["E1"]["dificuldade"] == 68 and L["E1"]["nivel"] == "dificil", L["E1"])
+chk("relatório: E2 é tranquila (índice 0, 100% de acerto, mediana 55 s)", (L["E2"]["dificuldade"], L["E2"]["nivel"], L["E2"]["acerto_1a_pct"], L["E2"]["tempo_mediano_s"], L["E2"]["abandono_pct"]) == (0, "tranquila", 100, 55, 0), L["E2"])
+chk("relatório: poucas pessoas = amostra pequena (não classifica)", L["E3"]["nivel"] == "amostra" and L["E3"]["iniciaram"] == 2 and L["E4"]["iniciaram"] == 0 and L["E4"]["dificuldade"] is None and L["E4"]["nivel"] == "amostra", (L["E3"], L["E4"]))
+chk("relatório: a lição mais difícil vem primeiro e as de amostra pequena vão para o fim", rel["licoes"][0]["codigo"] == "E1" and rel["licoes"][1]["codigo"] == "E2" and all(l["nivel"] == "amostra" for l in rel["licoes"][-3:]), [l["codigo"] for l in rel["licoes"]][:4])
+cet = next(c for c in rel["cursos"] if c["titulo"] == "Ética e compliance")
+chk("relatório: resumo por curso", (cet["licoes"], cet["elegiveis"], cet["iniciaram"], cet["concluiram"], cet["conclusao_pct"]) == (5, 4, 4, 0, 0), cet)
+r_ = rel["resumo"]
+chk("relatório: resumo geral (4 pessoas, todas ativas, admin fora da conta)", r_["pessoas"] == 4 and r_["ativas"] == 4 and r_["licoes_concluidas"] == 7 and r_["tempo_total_s"] == sum((420, 380, 400, 300, 40, 50, 60, 70, 100, 90)) and r_["min_amostra"] == 3, r_)
+chk("relatório: acerto geral na 1ª tentativa = 5 de 7 respondidas (71%)", r_["acerto_1a_pct"] == 71, r_["acerto_1a_pct"])
+chk("relatório: departamentos agrupam as pessoas", rel["departamentos"] == [{"id": None, "nome": "Sem departamento", "pessoas": 4, "ativas": 4, "conclusao_media_pct": rel["departamentos"][0]["conclusao_media_pct"]}], rel["departamentos"])
+chk("relatório: NÃO traz nomes nem e-mails de ninguém", not any(x in json.dumps(rel) for x in ("@delta.com", "Pessoa ", "Dora")))
+chk("relatório: filtro por curso", {l["curso"] for l in dadm.req("GET", f"/api/engajamento?curso_id={cur['Segurança']}")[1]["licoes"]} == {"Segurança"})
+dep_a = dadm.req("POST", "/api/departamentos", {"nome": "Time A"})[1]["id"]; dep_b = dadm.req("POST", "/api/departamentos", {"nome": "Time B"})[1]["id"]
+for i, dp in ((1, dep_a), (2, dep_a), (3, dep_b), (4, dep_b)): dadm.req("PUT", f"/api/usuarios/{uid[f'p{i}@delta.com']}", {"departamento_id": dp})
+rel_a = dadm.req("GET", f"/api/engajamento?departamento_id={dep_a}")[1]; La = {l["codigo"]: l for l in rel_a["licoes"]}
+chk("relatório: filtro por departamento recalcula só com aquelas pessoas", rel_a["resumo"]["pessoas"] == 2 and La["E1"]["elegiveis"] == 2 and La["E1"]["iniciaram"] == 2 and La["E1"]["nivel"] == "amostra", (rel_a["resumo"], La["E1"]))
+chk("relatório: departamentos listados com as pessoas de cada um", sorted((d_["nome"], d_["pessoas"]) for d_ in dadm.req("GET", "/api/engajamento")[1]["departamentos"]) == [("Time A", 2), ("Time B", 2)])
+chk("relatório: departamento de outra empresa ou inválido = 400", dadm.req("GET", f"/api/engajamento?departamento_id={dep_rh}")[0] == 400 and dadm.req("GET", "/api/engajamento?departamento_id=abc")[0] == 400 and dadm.req("GET", "/api/engajamento?curso_id=abc")[0] == 400)
+chk("relatório: só admin e master (funcionário 403, sem login 401)", P[0].req("GET", "/api/engajamento")[0] == 403 and Cli().req("GET", "/api/engajamento")[0] == 401 and P[0].req("GET", "/api/engajamento/licoes.csv")[0] == 403)
+chk("relatório: master precisa escolher a empresa", m.req("GET", "/api/engajamento")[0] == 400 and m.req("GET", f"/api/engajamento?empresa_id={delta}")[0] == 200)
+chk("relatório: a Gama não enxerga dados da Delta", not any(l["codigo"] in ("E1", "E2") for l in gadm.req("GET", "/api/engajamento")[1]["licoes"]))
+# CSV
+h_csv = urllib.request.Request(B + "/api/engajamento/licoes.csv", headers={"Cookie": dadm.cookie}); r_csv = urllib.request.urlopen(h_csv); bruto_csv = r_csv.read()
+linhas = list(_csv.reader(io.StringIO(bruto_csv.decode("utf-8-sig"))))
+chk("CSV: cabeçalho, tipo e nome do arquivo", linhas[0][:3] == ["curso", "licao", "codigo"] and "text/csv" in r_csv.headers["Content-Type"] and "engajamento_licoes.csv" in r_csv.headers["Content-Disposition"] and bruto_csv[:3] == b"\xef\xbb\xbf", linhas[0])
+lin_e1 = next(r for r in linhas if r[2] == "E1")
+chk("CSV: linha da lição E1 com os números e a classificação", lin_e1[3:6] == ["4", "4", "3"] and lin_e1[-2:] == ["68", "difícil"], lin_e1)
+chk("CSV: títulos que começam com '=' ganham apóstrofo (injeção de fórmulas)", next(r for r in linhas if r[2] == "S1")[1].startswith("'=1+1") and not any(c.startswith("=") for r in linhas for c in r))
+
+# --- conquistas ---
+q = []
+for i in range(1, 4):
+    m.req("POST", "/api/usuarios", {"empresa_id": delta, "nome": f"Quem {i}", "email": f"q{i}@delta.com", "senha": "senhaforte123", "tipo": "funcionario"})
+    cl = Cli(); cl.req("POST", "/api/login", {"email": f"q{i}@delta.com", "senha": "senhaforte123"}); q.append(cl)
+uid = {u["email"]: u["id"] for u in dadm.req("GET", "/api/usuarios")[1]["itens"]}
+pf = q[0].req("GET", "/api/conquistas")[1]
+chk("conquistas: perfil novo começa do zero (nível Iniciante, 11 conquistas bloqueadas)", pf["disponivel"] and pf["pontos"] == 0 and pf["nivel"]["nome"] == "Iniciante" and pf["desbloqueadas"] == 0 and len(pf["conquistas"]) == 11
+    and all(c["conquistada_em"] is None for c in pf["conquistas"]) and pf["proximo_nivel"]["faltam"] == 100, pf["nivel"])
+conc = lambda cl, cod, curso="Ética e compliance": cl.req("POST", f"/api/cursos/{cur[curso]}/licoes/{cid[cod]}/concluir", {})[1]
+r1 = conc(q[0], "E1"); chk("conquistas: concluir a 1ª lição avisa 'Primeiro passo'", [n["codigo"] for n in r1["novas_conquistas"]] == ["primeiro_passo"] and r1["novas_conquistas"][0]["nome"] == "Primeiro passo", r1)
+chk("conquistas: concluir de novo não repete o aviso", conc(q[0], "E1")["novas_conquistas"] == [])
+pf = q[0].req("GET", "/api/conquistas")[1]
+chk("conquistas: pontos = 10 por lição + 20 por conquista", pf["pontos"] == 30 and pf["desbloqueadas"] == 1 and next(c for c in pf["conquistas"] if c["codigo"] == "primeiro_passo")["conquistada_em"], pf["pontos"])
+for cod in ("E2", "E3", "E4"): conc(q[0], cod)
+ult = conc(q[0], "E5")
+chk("conquistas: terminar o curso desbloqueia 'Curso concluído'", "curso_concluido" in [n["codigo"] for n in ult["novas_conquistas"]], ult)
+chk("conquistas: 'Trilha completa' só vem ao terminar TODOS os cursos", "trilha_completa" not in [n["codigo"] for n in ult["novas_conquistas"]])
+for cod in ("S1", "S2"): conc(q[0], cod, "Segurança")
+fim = conc(q[0], "S3", "Segurança")
+chk("conquistas: terminar todos os cursos desbloqueia 'Trilha completa'", "trilha_completa" in [n["codigo"] for n in fim["novas_conquistas"]], fim)
+pf = q[0].req("GET", "/api/conquistas")[1]; ritmo = next(c for c in pf["conquistas"] if c["codigo"] == "em_ritmo")
+chk("conquistas: as bloqueadas mostram o progresso (8 de 10 lições)", ritmo["conquistada_em"] is None and (ritmo["atual"], ritmo["meta"]) == (8, 10) and pf["licoes"] == 8 and pf["cursos_concluidos"] == 2, ritmo)
+chk("conquistas: nível sobe com os pontos (Aprendiz a partir de 100)", pf["pontos"] >= 100 and pf["nivel"]["nome"] in ("Aprendiz", "Praticante") and 0 <= pf["progresso_nivel"] <= 100, (pf["pontos"], pf["nivel"]))
+cs = q[0].req("GET", "/api/cursos")[1]["itens"]; c_et = next(c for c in cs if c["titulo"] == "Ética e compliance")
+chk("certificado desbloqueável: curso 100% mostra 'faltam 0' e ainda sem certificado emitido", c_et["percentual"] == 100 and c_et["faltam"] == 0 and c_et["certificado"] is None, c_et)
+chk("certificado desbloqueável: curso em andamento mostra quantas lições faltam", next(c for c in q[1].req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Segurança")["faltam"] == 3)
+s, cert = q[0].req("POST", f"/api/cursos/{cur['Ética e compliance']}/certificado", {})
+chk("conquistas: emitir o certificado desbloqueia 'Certificado em mãos'", s == 200 and cert["codigo"].startswith("OUT-") and "certificado" in [n["codigo"] for n in cert["novas_conquistas"]], cert)
+c_et2 = next(c for c in q[0].req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Ética e compliance")
+chk("certificado desbloqueável: depois de emitido o curso traz o código", c_et2["certificado"] == cert["codigo"] and next(c for c in q[0].req("GET", "/api/cursos")[1]["itens"] if c["titulo"] == "Segurança")["certificado"] is None)
+# sequência de dias (constância) concedida na hora, com dados anteriores
+with db.conectar() as con:
+    for k, cod in enumerate(("E1", "E2", "E3")):
+        con.execute("INSERT INTO progresso_licoes (usuario_id,curso_id,conteudo_id,concluida_em) VALUES (?,?,?,?)", (uid["q2@delta.com"], cur["Ética e compliance"], cid[cod], (_dt.now() - _td(days=2 - k)).strftime("%Y-%m-%d %H:%M:%S")))
+    con.commit()
+pf2 = q[1].req("GET", "/api/conquistas")[1]
+chk("conquistas: 3 dias seguidos de estudo desbloqueiam 'Constância' (e quem já tinha feito antes recebe na 1ª visita)", pf2["sequencia_atual"] == 3 and pf2["melhor_sequencia"] == 3
+    and next(c for c in pf2["conquistas"] if c["codigo"] == "constancia")["conquistada_em"] and next(c for c in pf2["conquistas"] if c["codigo"] == "primeiro_passo")["conquistada_em"], (pf2["sequencia_atual"], pf2["desbloqueadas"]))
+# curioso (perguntas ao assistente)
+with db.conectar() as con:
+    for k in range(9):
+        con.execute("INSERT INTO historico_duvidas (usuario_id,empresa_id,pergunta,resposta) VALUES (?,?,?,?)", (uid["q3@delta.com"], delta, f"pergunta {k}", "resposta"))
+    con.commit()
+r_c = q[2].req("POST", "/api/chat", {"pergunta": "Qual é a política de brindes?"})[1]
+chk("conquistas: a 10ª pergunta ao assistente desbloqueia 'Curioso'", "curioso" in [n["codigo"] for n in r_c["novas_conquistas"]], r_c.get("novas_conquistas"))
+chk("conquistas: 'Curioso' não é anunciado de novo", q[2].req("POST", "/api/chat", {"pergunta": "E sobre o canal de denúncia?"})[1]["novas_conquistas"] == [])
+chk("conquistas: master não participa; sem login = 401; admin também tem perfil", m.req("GET", "/api/conquistas")[1] == {"disponivel": False} and Cli().req("GET", "/api/conquistas")[0] == 401 and dadm.req("GET", "/api/conquistas")[1]["disponivel"])
+chk("conquistas: perfis são independentes entre pessoas", q[2].req("GET", "/api/conquistas")[1]["licoes"] == 0 and q[0].req("GET", "/api/conquistas")[1]["licoes"] == 8)
+
+# --- a regra de acesso em SQL e a regra em Python (usada no relatório) têm de concordar ---
+with db.conectar() as con:
+    usrs = con.execute("SELECT * FROM usuarios WHERE empresa_id=?", (gama,)).fetchall()
+    conts = con.execute("SELECT id, visibilidade FROM conteudos WHERE empresa_id=?", (gama,)).fetchall()
+    deps_c = {}
+    for r in con.execute("SELECT conteudo_id, departamento_id FROM conteudo_departamentos"): deps_c.setdefault(r[0], set()).add(r[1])
+    divergencias = []
+    for u in usrs:
+        fsql, fpar = auth.filtro_conteudo(u, "k")
+        via_sql = {r[0] for r in con.execute(f"SELECT k.id FROM conteudos k WHERE k.empresa_id=? AND {fsql}", (gama, *fpar))}
+        via_py = {c["id"] for c in conts if auth.conteudo_visivel(u["tipo"], u["departamento_id"], c["visibilidade"], deps_c.get(c["id"], set()))}
+        if via_sql != via_py: divergencias.append((u["email"], via_sql ^ via_py))
+chk("acesso: a regra em SQL e a regra em Python dão o mesmo resultado para todos os usuários", not divergencias and len(usrs) >= 6, divergencias)
+# ========== MODELO DE NEGÓCIO (página pública) e DADOS DE DEMONSTRAÇÃO ==========
+resp_neg = urllib.request.urlopen(B + "/negocio.html"); html_neg = resp_neg.read().decode("utf-8")
+chk("negócio: página pública (sem login) com cabeçalhos de segurança", resp_neg.status == 200 and "text/html" in resp_neg.headers["Content-Type"] and "frame-ancestors 'none'" in resp_neg.headers["Content-Security-Policy"]
+    and resp_neg.headers.get("X-Content-Type-Options") == "nosniff" and resp_neg.headers.get("X-Frame-Options") == "DENY")
+chk("negócio: traz os três planos, os pacotes de setup e os valores do documento", all(x in html_neg for x in ("Starter", "Growth", "Enterprise", "R$ 497", "R$ 1.497", "R$ 3.497", "R$ 1.500 – R$ 2.500", "R$ 4.000 – R$ 7.000", "Sob consulta")) and "setup" in html_neg.lower())
+chk("negócio: a conta de exemplo bate com os valores sugeridos", 12 * 497 == 5964 and 12 * 1497 == 17964 and 12 * 3497 == 41964 and 10 * 1497 == 14970 and 10 * 1497 * 12 == 179640
+    and all(v in html_neg for v in ("R$ 5.964", "R$ 17.964", "R$ 41.964", "R$ 7.464 – R$ 8.464", "R$ 21.964 – R$ 24.964", "R$ 14.970", "R$ 179.640")))
+chk("negócio: separa o que funciona do roadmap e não promete 'zero alucinação'", "roadmap" in html_neg and "Slack, Teams e APIs" in html_neg and "zero alucina" not in html_neg.lower() and "blindagem" not in html_neg.lower())
+chk("negócio: /negocio também abre e não exige login", urllib.request.urlopen(B + "/negocio").status == 200 and "<script" not in html_neg.lower())
+
+# --- dados de demonstração: empresa limpa (Omega) com um curso de 5 lições ---
+omega = m.req("POST", "/api/empresas", {"nome": "Omega"})[1]["id"]
+m.req("POST", "/api/usuarios", {"empresa_id": omega, "nome": "Olga Admin", "email": "olga@omega.com", "senha": "senhaforte123", "tipo": "admin"})
+oadm = Cli(); oadm.req("POST", "/api/login", {"email": "olga@omega.com", "senha": "senhaforte123"})
+for k in range(1, 6):
+    oadm.req("POST", "/api/conteudos", {"codigo": f"O{k}", "titulo": f"Treinamento {k}", "categoria": "Treinamento", "texto": f"Procedimento {k}: siga o passo a passo oficial do treinamento número {k}.",
+                                        "pergunta_exemplo": f"Qual o passo do treinamento {k}?", "resposta_exemplo": f"O passo oficial {k}.", "visibilidade": "internos"})
+dsc = lambda *args: subprocess.run([sys.executable, os.path.join(BACK, "demo_apresentacao.py"), *args], cwd=BACK, env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                                   capture_output=True, encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+chk("demo: sem empresa válida falha com mensagem (não cria nada)", dsc("criar", "--empresa", "Não Existe").returncode != 0 and oadm.req("GET", "/api/engajamento")[1]["resumo"]["pessoas"] == 0)
+r_d = dsc("criar", "--empresa", "Omega")
+achou = re.search(r"colaborador@demo\.outgpt / (\S+)", r_d.stdout); senha_demo = achou.group(1) if achou else None
+chk("demo: criar termina bem e mostra a senha do colaborador de demonstração uma única vez", r_d.returncode == 0 and senha_demo and len(senha_demo) >= 10 and auth.validar_senha_nova(senha_demo) is None, (r_d.stdout + r_d.stderr)[-300:])
+rel_o = oadm.req("GET", "/api/engajamento")[1]; Lo = {l["codigo"]: l for l in rel_o["licoes"]}
+chk("demo: 10 pessoas (9 simuladas + o colaborador demo) em 3 departamentos", rel_o["resumo"]["pessoas"] == 10 and sorted(d_["nome"] for d_ in rel_o["departamentos"]) == ["Operações", "RH", "TI"], rel_o["resumo"])
+chk("demo: lição 1 tranquila (todos concluem, acertam e leem no tempo)", (Lo["O1"]["iniciaram"], Lo["O1"]["concluiram"], Lo["O1"]["nivel"], Lo["O1"]["acerto_1a_pct"]) == (9, 9, "tranquila", 100), Lo["O1"])
+chk("demo: lição 2 difícil (erros, tempo ~5x e abandono)", (Lo["O2"]["elegiveis"], Lo["O2"]["iniciaram"], Lo["O2"]["concluiram"], Lo["O2"]["abandono_pct"], Lo["O2"]["acerto_1a_pct"], Lo["O2"]["tempo_mediano_s"]) == (10, 8, 6, 25, 17, 305)
+    and Lo["O2"]["nivel"] == "dificil" and Lo["O2"]["dificuldade"] == 77, Lo["O2"])
+chk("demo: lição 3 pede atenção (tempo ~2,4x o esperado)", (Lo["O3"]["nivel"], Lo["O3"]["dificuldade"], Lo["O3"]["tempo_mediano_s"]) == ("atencao", 44, 145), Lo["O3"])
+chk("demo: lições 4 e 5 ficam como amostra pequena", Lo["O4"]["nivel"] == "amostra" and Lo["O4"]["iniciaram"] == 2 and Lo["O5"]["iniciaram"] == 0 and Lo["O5"]["nivel"] == "amostra")
+chk("demo: a ordem do relatório começa pela lição difícil", [l["codigo"] for l in rel_o["licoes"]][:3] == ["O2", "O3", "O1"], [l["codigo"] for l in rel_o["licoes"]])
+cdemo = Cli(); s, d = cdemo.req("POST", "/api/login", {"email": "colaborador@demo.outgpt", "senha": senha_demo})
+chk("demo: o colaborador de demonstração entra, na trilha do TI, com o curso zerado", s == 200 and d["departamento"] == "TI" and [(c["titulo"], c["licoes"], c["concluidas"]) for c in cdemo.req("GET", "/api/cursos")[1]["itens"]] == [("Treinamento", 5, 0)], d)
+chk("demo: os colaboradores simulados NÃO têm senha utilizável", Cli().req("POST", "/api/login", {"email": "ana.1@demo.outgpt", "senha": "Demo-123456-Out7"})[0] == 401 and Cli().req("POST", "/api/login", {"email": "ana.1@demo.outgpt", "senha": "senhaforte123"})[0] == 401)
+r_d2 = dsc("criar", "--empresa", "Omega")
+chk("demo: rodar 'criar' de novo não duplica nem gera outra senha", r_d2.returncode == 0 and "já existia" in r_d2.stdout and oadm.req("GET", "/api/engajamento")[1]["resumo"]["pessoas"] == 10 and cdemo.req("POST", "/api/login", {"email": "colaborador@demo.outgpt", "senha": senha_demo})[0] == 200)
+r_x = dsc("remover", "--empresa", "Omega")
+rel_x = oadm.req("GET", "/api/engajamento")[1]
+chk("demo: remover apaga os usuários e os departamentos criados, sem tocar no resto", r_x.returncode == 0 and rel_x["resumo"]["pessoas"] == 0 and oadm.req("GET", "/api/departamentos")[1]["itens"] == []
+    and Cli().req("POST", "/api/login", {"email": "colaborador@demo.outgpt", "senha": senha_demo})[0] == 401 and len(oadm.req("GET", "/api/conteudos")[1]["itens"]) == 5 and "Olga" in json.dumps(oadm.req("GET", "/api/usuarios")[1]), r_x.stdout)
+chk("demo: remover é seguro rodar de novo e não mexe em outra empresa", dsc("remover", "--empresa", "Omega").returncode == 0 and len(dadm.req("GET", "/api/usuarios")[1]["itens"]) >= 7 and dadm.req("GET", "/api/engajamento")[1]["resumo"]["pessoas"] == 4 + 3)
 # ========== SEGURANÇA: origem das requisições (CSRF) e Codespaces ==========
 chk("CSRF: origem estranha é bloqueada (403)", Cli().req("POST", "/api/login", {"email": "dono@teste.com", "senha": PW}, origin="https://site-malicioso.com")[0] == 403)
 chk("CSRF: a própria origem do site é aceita", Cli().req("POST", "/api/login", {"email": "dono@teste.com", "senha": PW}, origin=B)[0] == 200)

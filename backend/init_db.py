@@ -1,4 +1,4 @@
-"""Cria ou atualiza o banco outgpt.db (esquema v5: multiempresa, autenticação, cursos e departamentos) e carrega as perguntas da pesquisa.
+"""Cria ou atualiza o banco outgpt.db (esquema v6: multiempresa, autenticação, cursos, departamentos e engajamento) e carrega as perguntas da pesquisa.
 
 Uso:  python init_db.py          # cria ou atualiza o banco (preserva a pesquisa e dados já existentes da v2)
       python init_db.py --reset  # apaga o arquivo e recria do zero
@@ -11,7 +11,7 @@ import sys
 import db
 
 BASE = db.BASE
-VERSAO = 5
+VERSAO = 6
 
 PERGUNTAS = [
     (1, "Em uma escala de 1 a 5, qual a importância de reduzir o tempo de onboarding de novos integrantes com apoio de IA generativa?",
@@ -62,7 +62,7 @@ def migrar(con):
         for t in LEGADO_V1:
             con.execute(f"DROP TABLE IF EXISTS {t}")
         print("Banco da versão 1 atualizado (tabelas de demonstração substituídas; pesquisa preservada).")
-    elif existe:                  # v2/v3/v4 -> v5: mantém empresas, usuários, conteúdos e histórico
+    elif existe:                  # v2..v5 -> v6: mantém empresas, usuários, conteúdos e histórico
         if versao < 3:
             for t in LEGADO_V2:
                 con.execute(f"DROP TABLE IF EXISTS {t}")
@@ -71,6 +71,9 @@ def migrar(con):
                     con.execute(f"ALTER TABLE conteudos ADD COLUMN {col}")
         if "departamento_id" not in colunas(con, "usuarios"):      # v5: departamento do usuário (a tabela nasce em schema.sql)
             con.execute("ALTER TABLE usuarios ADD COLUMN departamento_id INTEGER REFERENCES departamentos(id) ON DELETE SET NULL")
+        if con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='progresso_licoes'").fetchone() and "tentativas" not in colunas(con, "progresso_licoes"):
+            con.execute("ALTER TABLE progresso_licoes ADD COLUMN tentativas INTEGER NOT NULL DEFAULT 0")     # v6: nº de respostas à pergunta
+            con.execute("UPDATE progresso_licoes SET tentativas = 1 WHERE acertou IS NOT NULL")
         for col in ("encontrado INTEGER NOT NULL DEFAULT 1", "resolvida INTEGER NOT NULL DEFAULT 0", "avaliacao INTEGER", "comentario TEXT"):
             if col.split()[0] not in colunas(con, "historico_duvidas"):
                 con.execute(f"ALTER TABLE historico_duvidas ADD COLUMN {col}")
